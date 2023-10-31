@@ -9,11 +9,23 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 import path from 'path';
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
+import { app, BrowserWindow, shell, screen, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
+import { F123UDP } from 'f1-23-udp';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
+
+const f123: F123UDP = new F123UDP();
+f123.start();
+
+// f123.on("carTelemetry", (data) => {
+//   console.log(data.m_carTelemetryData[0].)
+// })
+
+// f123.on("session", (data) => {
+//   console.log(data)
+// })
 
 class AppUpdater {
   constructor() {
@@ -24,6 +36,13 @@ class AppUpdater {
 }
 
 let mainWindow: BrowserWindow | null = null;
+
+f123.on('lapData', (data) => {
+  if (mainWindow != null) {
+    mainWindow.webContents.send('lapData', data);
+  }
+  // ipcMain.emit('lapData', data);
+});
 
 ipcMain.on('ipc-example', async (event, arg) => {
   const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
@@ -39,9 +58,9 @@ if (process.env.NODE_ENV === 'production') {
 const isDebug =
   process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true';
 
-if (isDebug) {
-  require('electron-debug')();
-}
+// if (isDebug) {
+//   require('electron-debug')();
+// }
 
 const installExtensions = async () => {
   const installer = require('electron-devtools-installer');
@@ -69,10 +88,21 @@ const createWindow = async () => {
     return path.join(RESOURCES_PATH, ...paths);
   };
 
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth } = primaryDisplay.workAreaSize;
+
+  const width = 200;
+
   mainWindow = new BrowserWindow({
     show: false,
-    width: 1024,
-    height: 728,
+    width,
+    height: 200,
+    y: 300,
+    x: screenWidth - width,
+    transparent: true,
+    frame: false,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    alwaysOnTop: true,
     icon: getAssetPath('icon.png'),
     webPreferences: {
       preload: app.isPackaged
@@ -87,11 +117,16 @@ const createWindow = async () => {
     if (!mainWindow) {
       throw new Error('"mainWindow" is not defined');
     }
-    if (process.env.START_MINIMIZED) {
-      mainWindow.minimize();
-    } else {
-      mainWindow.show();
-    }
+    mainWindow.show();
+    // if (true) {
+    //   console.log('Minimizing');
+    //   setTimeout(() => {
+    //     mainWindow?.minimize();
+    //   }, 500);
+    //   mainWindow.minimize();
+    // } else {
+    //   mainWindow.show();
+    // }
   });
 
   mainWindow.on('closed', () => {
