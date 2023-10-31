@@ -1,21 +1,38 @@
 import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
 import './App.css';
-import { useEffect, useMemo, useState } from 'react';
-import type { PacketLapData, LapData } from 'f1-23-udp';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type {
+  PacketLapData,
+  LapData,
+  PacketParticipantsData,
+  PacketSessionHistoryData,
+} from 'f1-23-udp';
 
 const padZeros = (num: number, pad: number) => {
-  return num.toString().padStart(pad, '0');
+  if (num >= 0) {
+    return num.toString().padStart(pad, '0');
+  }
+  return `-${Math.abs(num).toString().padStart(pad, '0')}`;
 };
 
 const msToText = (time: number) => {
+  let text = '';
   let s = time;
   const ms = s % 1000;
+  text = `.${padZeros(ms, 3)}${text}`;
   s = (s - ms) / 1000;
   const secs = s % 60;
+  if (Math.abs(secs) > 0) {
+    text = `${padZeros(secs, 2)}${text}`;
+  }
   s = (s - secs) / 60;
   const mins = s % 60;
+  if (Math.abs(mins) > 0) {
+    text = `${padZeros(mins, 2)}:${text}`;
+  }
+  return text;
 
-  return `${padZeros(mins, 2)}:${padZeros(secs, 2)}.${padZeros(ms, 3)}`;
+  // return `${padZeros(mins, 2)}:${padZeros(secs, 2)}.${padZeros(ms, 3)}`;
   // return ms.toString();
   // const duration = intervalToDuration({ start: 0, end: ms });
 
@@ -40,6 +57,13 @@ function Hello() {
   );
 
   const [currentLapData, setCurrentLapData] = useState<PacketLapData | null>();
+
+  const [sessionHistory, setSessionHistory] = useState<
+    Record<number, PacketSessionHistoryData>
+  >({});
+
+  const [participants, setParticipants] =
+    useState<PacketParticipantsData | null>();
 
   useEffect(() => {
     console.log('Running use effect');
@@ -87,6 +111,29 @@ function Hello() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const listener = window.electron.ipcRenderer.on('sessionHistory', (arg) => {
+      const data = arg as PacketSessionHistoryData;
+      sessionHistory[data.m_carIdx] = data;
+      setSessionHistory(sessionHistory);
+    });
+
+    return () => {
+      listener();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const listener = window.electron.ipcRenderer.on('participants', (data) => {
+      setParticipants(data as PacketParticipantsData);
+    });
+
+    return () => {
+      listener();
+    };
+  }, []);
+
   const selfLapData: LapData | null = useMemo(() => {
     if (currentLapData == null) {
       return null;
@@ -122,11 +169,54 @@ function Hello() {
     return null;
   }, [prevLapData, selfLapData]);
 
+  const lastLapOfDriver = useCallback(
+    (driverPosition: number) => {
+      if (currentLapData == null) {
+        return 0;
+      }
+      let lapDataAtPosition: LapData | null = null;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const driverLapData of currentLapData.m_lapData) {
+        if (driverLapData.m_carPosition === driverPosition) {
+          lapDataAtPosition = driverLapData;
+        }
+      }
+      if (lapDataAtPosition == null) {
+        return 0;
+      }
+      return lapDataAtPosition.m_lastLapTimeInMS;
+    },
+    [currentLapData],
+  );
+
+  const lastLapOfDriverInFront = useMemo(() => {
+    if (selfLapData == null) {
+      return 0;
+    }
+    return lastLapOfDriver(selfLapData.m_carPosition - 1);
+  }, [lastLapOfDriver, selfLapData]);
+
+  const lastLapOfDriverBehind = useMemo(() => {
+    if (selfLapData == null) {
+      return 0;
+    }
+    return lastLapOfDriver(selfLapData.m_carPosition + 1);
+  }, [lastLapOfDriver, selfLapData]);
+
   const currentLapTimeInMS =
     selfLapData == null ? 0 : selfLapData.m_currentLapTimeInMS;
 
   const lastLapTimeInMs =
     selfLapData == null ? 0 : selfLapData.m_lastLapTimeInMS;
+
+  const diffToFront =
+    lastLapTimeInMs === 0 || lastLapOfDriverInFront === 0
+      ? 0
+      : lastLapTimeInMs - lastLapOfDriverInFront;
+  const diffToBehind =
+    lastLapTimeInMs === 0 || lastLapOfDriverBehind === 0
+      ? 0
+      : lastLapTimeInMs - lastLapOfDriverBehind;
 
   const diffToLastLap =
     selfLapData == null || lastLapTime == null
@@ -160,15 +250,15 @@ function Hello() {
     selfLapData == null
       ? [0, 0, 0]
       : [
-          selfLapData.m_sector <= 0
+          lastLapSectorTimes[0] !== 0 && selfLapData.m_sector <= 0
             ? 0
             : thisLapSectorTimes[0] - lastLapSectorTimes[0],
 
-          selfLapData.m_sector <= 1
+          lastLapSectorTimes[1] !== 0 && selfLapData.m_sector <= 1
             ? 0
             : thisLapSectorTimes[1] - lastLapSectorTimes[1],
 
-          selfLapData.m_sector <= 2
+          lastLapSectorTimes[2] !== 0 && selfLapData.m_sector <= 2
             ? 0
             : thisLapSectorTimes[2] - lastLapSectorTimes[2],
         ];
@@ -202,14 +292,27 @@ function Hello() {
         </div>
         <div>
           Sector Times:
-          <div style={{ display: 'flex', flexDirection: 'row' }}>
-            <div style={getStyleFromMs(diffToLastLapSector[0])}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{ flexGrow: 1, ...getStyleFromMs(diffToLastLapSector[0]) }}
+            >
               {msToText(diffToLastLapSector[0])},{' '}
             </div>
-            <div style={getStyleFromMs(diffToLastLapSector[1])}>
+            <div
+              style={{ flexGrow: 1, ...getStyleFromMs(diffToLastLapSector[1]) }}
+            >
               {msToText(diffToLastLapSector[1])},{' '}
             </div>
-            <div style={getStyleFromMs(diffToLastLapSector[2])}>
+            <div
+              style={{ flexGrow: 1, ...getStyleFromMs(diffToLastLapSector[2]) }}
+            >
               {msToText(diffToLastLapSector[2])}
             </div>
           </div>
@@ -221,19 +324,51 @@ function Hello() {
       <div style={{ marginTop: '20px' }}>
         <div>
           Current Lap sector times:
-          <div style={{ display: 'flex', flexDirection: 'row' }}>
-            <div>{msToText(thisLapSectorTimes[0])}, </div>
-            <div>{msToText(thisLapSectorTimes[1])}, </div>
-            <div>{msToText(thisLapSectorTimes[2])}</div>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              textAlign: 'center',
+            }}
+          >
+            <div style={{ flexGrow: 1 }}>
+              {msToText(thisLapSectorTimes[0])},{' '}
+            </div>
+            <div style={{ flexGrow: 1 }}>
+              {msToText(thisLapSectorTimes[1])},{' '}
+            </div>
+            <div style={{ flexGrow: 1 }}>{msToText(thisLapSectorTimes[2])}</div>
           </div>
         </div>
         <div>
           Last Lap sector times:
-          <div style={{ display: 'flex', flexDirection: 'row' }}>
-            <div>{msToText(lastLapSectorTimes[0])}, </div>
-            <div>{msToText(lastLapSectorTimes[1])}, </div>
-            <div>{msToText(lastLapSectorTimes[2])}</div>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              textAlign: 'center',
+            }}
+          >
+            <div style={{ flexGrow: 1 }}>
+              {msToText(lastLapSectorTimes[0])},{' '}
+            </div>
+            <div style={{ flexGrow: 1 }}>
+              {msToText(lastLapSectorTimes[1])},{' '}
+            </div>
+            <div style={{ flexGrow: 1 }}>{msToText(lastLapSectorTimes[2])}</div>
           </div>
+        </div>
+      </div>
+      <div>
+        <div style={getStyleFromMs(diffToFront)}>
+          Last lap in front: {msToText(lastLapOfDriverInFront ?? 0)} (
+          {msToText(diffToFront)})
+        </div>
+        <div style={getStyleFromMs(diffToBehind)}>
+          Last lap behind: {msToText(lastLapOfDriverBehind ?? 0)} (
+          {msToText(diffToBehind)})
         </div>
       </div>
     </div>

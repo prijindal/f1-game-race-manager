@@ -41,7 +41,18 @@ f123.on('lapData', (data) => {
   if (mainWindow != null) {
     mainWindow.webContents.send('lapData', data);
   }
-  // ipcMain.emit('lapData', data);
+});
+
+f123.on('participants', (data) => {
+  if (mainWindow != null) {
+    mainWindow.webContents.send('participants', data);
+  }
+});
+
+f123.on('sessionHistory', (data) => {
+  if (mainWindow != null) {
+    mainWindow.webContents.send('sessionHistory', data);
+  }
 });
 
 ipcMain.on('ipc-example', async (event, arg) => {
@@ -91,18 +102,18 @@ const createWindow = async () => {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth } = primaryDisplay.workAreaSize;
 
-  const width = 250;
-  const height = 300;
+  const width = 280;
+  const height = 290;
 
   mainWindow = new BrowserWindow({
     show: false,
     width,
     height,
-    y: 300,
+    y: 220,
     x: screenWidth - width,
     transparent: true,
     frame: false,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
     alwaysOnTop: true,
     icon: getAssetPath('icon.png'),
     webPreferences: {
