@@ -3,6 +3,10 @@ import './App.css';
 import { useEffect, useMemo, useState } from 'react';
 import type { PacketLapData, LapData } from 'f1-23-udp';
 
+const padZeros = (num: number, pad: number) => {
+  return num.toString().padStart(pad, '0');
+};
+
 const msToText = (time: number) => {
   let s = time;
   const ms = s % 1000;
@@ -11,7 +15,7 @@ const msToText = (time: number) => {
   s = (s - secs) / 60;
   const mins = s % 60;
 
-  return `${mins}:${secs}.${ms}`;
+  return `${padZeros(mins, 2)}:${padZeros(secs, 2)}.${padZeros(ms, 3)}`;
   // return ms.toString();
   // const duration = intervalToDuration({ start: 0, end: ms });
 
@@ -44,22 +48,31 @@ function Hello() {
       (arg: unknown) => {
         // console.log(arg);
         const data = arg as PacketLapData;
+        if (
+          currentLapData != null &&
+          currentLapData.m_header.session_uid !== data.m_header.session_uid
+        ) {
+          setCurrentLapData(null);
+          setPrevLapsData({});
+        }
         setCurrentLapData(data);
         // console.log(currentLapData);
         if (data != null) {
-          const selfLapData = data.m_lapData[data.m_header.player_car_index];
-          if (prevLapsData[selfLapData.m_currentLapNum] == null) {
-            prevLapsData[selfLapData.m_currentLapNum] = {
+          const localSelfLapData =
+            data.m_lapData[data.m_header.player_car_index];
+          if (prevLapsData[localSelfLapData.m_currentLapNum] == null) {
+            prevLapsData[localSelfLapData.m_currentLapNum] = {
               distanceToLapTime: {},
-              selfLapData,
+              selfLapData: localSelfLapData,
             };
           }
-          if (selfLapData != null) {
-            prevLapsData[selfLapData.m_currentLapNum].selfLapData = selfLapData;
-            if (selfLapData.m_currentLapTimeInMS > 0) {
-              prevLapsData[selfLapData.m_currentLapNum].distanceToLapTime[
-                selfLapData.m_lapDistance
-              ] = selfLapData.m_currentLapTimeInMS;
+          if (localSelfLapData != null) {
+            prevLapsData[localSelfLapData.m_currentLapNum].selfLapData =
+              localSelfLapData;
+            if (localSelfLapData.m_currentLapTimeInMS > 0) {
+              prevLapsData[localSelfLapData.m_currentLapNum].distanceToLapTime[
+                localSelfLapData.m_lapDistance
+              ] = localSelfLapData.m_currentLapTimeInMS;
             }
           }
           setPrevLapsData(prevLapsData);
@@ -81,13 +94,15 @@ function Hello() {
     return currentLapData.m_lapData[currentLapData.m_header.player_car_index];
   }, [currentLapData]);
 
-  const lastLapTime = useMemo(() => {
-    if (selfLapData == null) {
-      return null;
+  const prevLapData = useMemo(() => {
+    if (selfLapData != null && prevLapsData[selfLapData.m_currentLapNum - 1]) {
+      return prevLapsData[selfLapData.m_currentLapNum - 1];
     }
-    // console.log(prevLapsData);
-    if (prevLapsData[selfLapData.m_currentLapNum - 1]) {
-      const prevLapData = prevLapsData[selfLapData.m_currentLapNum - 1];
+    return null;
+  }, [prevLapsData, selfLapData]);
+
+  const lastLapTime = useMemo(() => {
+    if (prevLapData != null && selfLapData != null) {
       // console.log(prevLapData);
       let maxDistance = 0;
       let lapDistanceime: number | null = null;
@@ -105,22 +120,121 @@ function Hello() {
       return lapDistanceime;
     }
     return null;
-  }, [prevLapsData, selfLapData]);
+  }, [prevLapData, selfLapData]);
+
+  const currentLapTimeInMS =
+    selfLapData == null ? 0 : selfLapData.m_currentLapTimeInMS;
+
+  const lastLapTimeInMs =
+    selfLapData == null ? 0 : selfLapData.m_lastLapTimeInMS;
+
+  const diffToLastLap =
+    selfLapData == null || lastLapTime == null
+      ? 0
+      : selfLapData.m_currentLapTimeInMS - lastLapTime;
+
+  const thisLapSectorTimes =
+    selfLapData == null
+      ? [0, 0, 0]
+      : [
+          selfLapData.m_sector1TimeInMS,
+          selfLapData.m_sector2TimeInMS,
+          selfLapData.m_sector !== 3
+            ? 0
+            : selfLapData.m_currentLapTimeInMS -
+              (selfLapData.m_sector1TimeInMS + selfLapData.m_sector2TimeInMS),
+        ];
+
+  const lastLapSectorTimes =
+    selfLapData == null || prevLapData == null
+      ? [0, 0, 0]
+      : [
+          prevLapData.selfLapData.m_sector1TimeInMS,
+          prevLapData.selfLapData.m_sector2TimeInMS,
+          selfLapData.m_lastLapTimeInMS -
+            (prevLapData.selfLapData.m_sector1TimeInMS +
+              prevLapData.selfLapData.m_sector2TimeInMS),
+        ];
+
+  const diffToLastLapSector =
+    selfLapData == null
+      ? [0, 0, 0]
+      : [
+          selfLapData.m_sector <= 0
+            ? 0
+            : thisLapSectorTimes[0] - lastLapSectorTimes[0],
+
+          selfLapData.m_sector <= 1
+            ? 0
+            : thisLapSectorTimes[1] - lastLapSectorTimes[1],
+
+          selfLapData.m_sector <= 2
+            ? 0
+            : thisLapSectorTimes[2] - lastLapSectorTimes[2],
+        ];
+
+  const getStyleFromMs = (ms: number) => {
+    if (ms > 0) {
+      return {
+        backgroundColor: 'rgba(232, 7, 7, 0.6)',
+      };
+    }
+    if (ms < 0) {
+      return {
+        backgroundColor: 'rgba(39, 245, 86, 0.6)',
+      };
+    }
+    return {};
+  };
 
   return (
     <div>
-      <div>
-        Current Lap:{' '}
-        {selfLapData == null ? 0 : msToText(selfLapData.m_currentLapTimeInMS)}
+      <div
+        style={{
+          marginBottom: '20px',
+          borderTop: `1px solid rgba(7, 68, 232)`,
+          borderBottom: `1px solid rgba(7, 68, 232)`,
+        }}
+      >
+        <div>Diff to Last Lap:</div>
+        <div style={{ fontSize: '2rem', ...getStyleFromMs(diffToLastLap) }}>
+          {msToText(diffToLastLap)}
+        </div>
+        <div>
+          Sector Times:
+          <div style={{ display: 'flex', flexDirection: 'row' }}>
+            <div style={getStyleFromMs(diffToLastLapSector[0])}>
+              {msToText(diffToLastLapSector[0])},{' '}
+            </div>
+            <div style={getStyleFromMs(diffToLastLapSector[1])}>
+              {msToText(diffToLastLapSector[1])},{' '}
+            </div>
+            <div style={getStyleFromMs(diffToLastLapSector[2])}>
+              {msToText(diffToLastLapSector[2])}
+            </div>
+          </div>
+        </div>
       </div>
-      <div>
-        last lap Time: {lastLapTime == null ? 0 : msToText(lastLapTime)}
-      </div>
-      <div>
-        Diff to last lap:{' '}
-        {selfLapData == null || lastLapTime == null
-          ? 0
-          : msToText(selfLapData.m_currentLapTimeInMS - lastLapTime)}
+
+      <div>Current Lap: {msToText(currentLapTimeInMS)}</div>
+      <div>Last Lap Time: {msToText(lastLapTimeInMs)}</div>
+      <div style={{ marginTop: '20px' }}>
+        <div>
+          Current Lap sector times:
+          <div style={{ display: 'flex', flexDirection: 'row' }}>
+            <div>{msToText(thisLapSectorTimes[0])}, </div>
+            <div>{msToText(thisLapSectorTimes[1])}, </div>
+            <div>{msToText(thisLapSectorTimes[2])}</div>
+          </div>
+        </div>
+        <div>
+          Last Lap sector times:
+          <div style={{ display: 'flex', flexDirection: 'row' }}>
+            <div>{msToText(lastLapSectorTimes[0])}, </div>
+            <div>{msToText(lastLapSectorTimes[1])}, </div>
+            <div>{msToText(lastLapSectorTimes[2])}</div>
+          </div>
+        </div>
       </div>
     </div>
   );

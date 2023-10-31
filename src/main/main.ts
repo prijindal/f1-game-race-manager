@@ -91,17 +91,18 @@ const createWindow = async () => {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth } = primaryDisplay.workAreaSize;
 
-  const width = 200;
+  const width = 250;
+  const height = 300;
 
   mainWindow = new BrowserWindow({
     show: false,
     width,
-    height: 200,
+    height,
     y: 300,
     x: screenWidth - width,
     transparent: true,
     frame: false,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     alwaysOnTop: true,
     icon: getAssetPath('icon.png'),
     webPreferences: {
