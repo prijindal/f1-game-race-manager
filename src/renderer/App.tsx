@@ -1,4 +1,5 @@
 import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
+import 'tailwindcss/tailwind.css';
 import './App.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
@@ -11,45 +12,46 @@ import type {
   PacketSessionData,
   PacketTyreSetsData,
 } from 'f1-23-udp';
-import { differenceInSeconds, formatDistance, subDays } from 'date-fns';
+import { differenceInSeconds, subDays } from 'date-fns';
+import { roundToNearest, msToText, getClassNameFromMs } from './helpers/util';
+import DiffToLap from './components/diff';
 
-const padZeros = (num: number, pad: number) => {
-  if (num >= 0) {
-    return num.toString().padStart(pad, '0');
-  }
-  return `-${Math.abs(num).toString().padStart(pad, '0')}`;
-};
-
-function roundToNearest(num: number, digits: number) {
-  const factor = 10 ** digits;
-  return Math.round(num * factor) / factor;
-}
-
-const msToText = (time: number, inputFormat: 'ms' | 's' = 'ms') => {
-  let text = '';
-  let s = time;
-  if (inputFormat === 's') {
-    s *= 1000;
-  }
-  const ms = s % 1000;
-  if (inputFormat === 'ms') {
-    text = `.${padZeros(ms, 3)}${text}`;
-  }
-  s = (s - ms) / 1000;
-  const secs = s % 60;
-  if (Math.abs(s) > 0) {
-    text = `${padZeros(secs, 2)}${text}`;
-  }
-  s = (s - secs) / 60;
-  const mins = s;
-  if (Math.abs(s) > 0) {
-    text = `${padZeros(mins, 2)}:${text}`;
-  }
-  return text;
-};
 type PrevLapData = {
   distanceToLapTime: Record<number, number>;
   selfLapData: LapData;
+};
+
+const timesFromLapData = (
+  lapData: PrevLapData | null,
+  selfLapData: LapData | null,
+) => {
+  if (lapData != null && selfLapData != null) {
+    // console.log(prevLapData);
+    let maxDistance = 0;
+    let lapDistanceTime: number = 0;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const d of Object.keys(lapData.distanceToLapTime)) {
+      const currentDistance = parseFloat(d);
+      if (
+        selfLapData.m_lapDistance >= currentDistance &&
+        currentDistance > maxDistance
+      ) {
+        maxDistance = currentDistance;
+        lapDistanceTime = lapData.distanceToLapTime[currentDistance];
+      }
+    }
+    return {
+      lapDistanceTime,
+      diff:
+        lapDistanceTime == null
+          ? 0
+          : selfLapData.m_currentLapTimeInMS - lapDistanceTime,
+    };
+  }
+  return {
+    lapDistanceTime: 0,
+    diff: 0,
+  };
 };
 
 function Main() {
@@ -208,26 +210,28 @@ function Main() {
     return null;
   }, [prevLapsData, selfLapData]);
 
-  const lastLapTime = useMemo(() => {
-    if (prevLapData != null && selfLapData != null) {
-      // console.log(prevLapData);
-      let maxDistance = 0;
-      let lapDistanceime: number | null = null;
-      // eslint-disable-next-line no-restricted-syntax
-      for (const d of Object.keys(prevLapData.distanceToLapTime)) {
-        const currentDistance = parseFloat(d);
-        if (
-          selfLapData.m_lapDistance >= currentDistance &&
-          currentDistance > maxDistance
-        ) {
-          maxDistance = currentDistance;
-          lapDistanceime = prevLapData.distanceToLapTime[currentDistance];
+  const personalSessionHistory = useMemo(() => {
+    if (sessionHistory != null) {
+      // eslint-disable-next-line no-restricted-syntax, guard-for-in
+      for (const key in sessionHistory) {
+        const sessionHist = sessionHistory[key];
+        if (sessionHist.m_header.player_car_index === sessionHist.m_carIdx) {
+          return sessionHist;
         }
       }
-      return lapDistanceime;
     }
     return null;
-  }, [prevLapData, selfLapData]);
+  }, [sessionHistory]);
+
+  const personalBestLap = useMemo(() => {
+    if (personalSessionHistory == null) {
+      return null;
+    }
+    const bestLapNumber = personalSessionHistory.m_bestLapTimeLapNum;
+    const bestLap = prevLapsData[bestLapNumber];
+
+    return { bestLap, bestLapNumber };
+  }, [personalSessionHistory, prevLapsData]);
 
   const lastLapOfDriver = useCallback(
     (driverPosition: number) => {
@@ -318,10 +322,7 @@ function Main() {
       ? 0
       : lastLapTimeInMs - lastLapOfDriverBehind;
 
-  const diffToLastLap =
-    selfLapData == null || lastLapTime == null
-      ? 0
-      : selfLapData.m_currentLapTimeInMS - lastLapTime;
+  const { diff: diffToLastLap } = timesFromLapData(prevLapData, selfLapData);
 
   const thisLapSectorTimes =
     selfLapData == null
@@ -334,6 +335,11 @@ function Main() {
             : selfLapData.m_currentLapTimeInMS -
               (selfLapData.m_sector1TimeInMS + selfLapData.m_sector2TimeInMS),
         ];
+
+  const { diff: diffToBestLap } = timesFromLapData(
+    personalBestLap?.bestLap || null,
+    selfLapData,
+  );
 
   const lastLapSectorTimes =
     selfLapData == null || prevLapData == null
@@ -363,187 +369,79 @@ function Main() {
             : thisLapSectorTimes[2] - lastLapSectorTimes[2],
         ];
 
-  const getStyleFromMs = (ms: number) => {
-    if (ms > 0) {
-      return {
-        backgroundColor: 'rgba(232, 7, 7, 0.6)',
-      };
-    }
-    if (ms < 0) {
-      return {
-        backgroundColor: 'rgba(39, 245, 86, 0.6)',
-      };
-    }
-    return {};
-  };
-
-  if (differenceInSeconds(currentTime, lastUpdated) > 15) {
-    return (
-      <div
-        style={{
-          height: '100%',
-          width: '90%',
-          borderLeft: `1px solid rgba(7, 68, 232)`,
-        }}
-      />
-    );
-  }
+  const shouldHide =
+    false && differenceInSeconds(currentTime, lastUpdated) > 15;
 
   return (
     <div
-      style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        height: '100%',
-        width: '100%',
-      }}
+      className={`w-full h-full pointer-events-none transition-color duration-500 ${
+        shouldHide ? 'bg-black/0 text-white/0' : 'bg-black/80 text-white'
+      }`}
     >
-      <div
-        style={{
-          marginBottom: '5px',
-          borderTop: `1px solid rgba(7, 68, 232)`,
-          borderBottom: `1px solid rgba(7, 68, 232)`,
-        }}
-      >
-        <div>Diff to Last Lap:</div>
-        <div style={{ fontSize: '2rem', ...getStyleFromMs(diffToLastLap) }}>
-          {msToText(diffToLastLap)}
-        </div>
-        <div>
-          Sector Times:
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              textAlign: 'center',
-            }}
-          >
-            <div
-              style={{ flexGrow: 1, ...getStyleFromMs(diffToLastLapSector[0]) }}
-            >
-              {msToText(diffToLastLapSector[0])},{' '}
-            </div>
-            <div
-              style={{ flexGrow: 1, ...getStyleFromMs(diffToLastLapSector[1]) }}
-            >
-              {msToText(diffToLastLapSector[1])},{' '}
-            </div>
-            <div
-              style={{ flexGrow: 1, ...getStyleFromMs(diffToLastLapSector[2]) }}
-            >
-              {msToText(diffToLastLapSector[2])}
-            </div>
-          </div>
-        </div>
-      </div>
+      <DiffToLap
+        title="Diff to Last Lap:"
+        diff={diffToLastLap}
+        sectorDiff={diffToLastLapSector}
+      />
+      <DiffToLap
+        title="Diff to Best Lap:"
+        diff={diffToBestLap}
+        sectorDiff={undefined}
+      />
 
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-        }}
-      >
-        <div style={{ flexGrow: 1 }}>
+      <div className="flex flex-row justify-between">
+        <div className="flex-grow">
           Current Lap: {msToText(currentLapTimeInMS)}
         </div>
-        <div style={{ flexGrow: 1 }}>Last Lap: {msToText(lastLapTimeInMs)}</div>
+        <div className="flex-grow">Last Lap: {msToText(lastLapTimeInMs)}</div>
       </div>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-        }}
-      >
-        <div style={{ flexGrow: 1 }}>
+      <div className="flex flex-row justify-between">
+        <div className="flex-grow">
           Current sectors:
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              textAlign: 'center',
-            }}
-          >
-            <div style={{ flexGrow: 1 }}>
-              {msToText(thisLapSectorTimes[0])},{' '}
-            </div>
-            <div style={{ flexGrow: 1 }}>
-              {msToText(thisLapSectorTimes[1])},{' '}
-            </div>
-            <div style={{ flexGrow: 1 }}>{msToText(thisLapSectorTimes[2])}</div>
+          <div className="flex flex-row justify-between text-center">
+            <div className="flex-grow">{msToText(thisLapSectorTimes[0])}, </div>
+            <div className="flex-grow">{msToText(thisLapSectorTimes[1])}, </div>
+            <div className="flex-grow">{msToText(thisLapSectorTimes[2])}</div>
           </div>
         </div>
-        <div style={{ flexGrow: 1 }}>
+        <div className="flex-grow">
           Last sectors:
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              textAlign: 'center',
-            }}
-          >
-            <div style={{ flexGrow: 1 }}>
-              {msToText(lastLapSectorTimes[0])},{' '}
-            </div>
-            <div style={{ flexGrow: 1 }}>
-              {msToText(lastLapSectorTimes[1])},{' '}
-            </div>
-            <div style={{ flexGrow: 1 }}>{msToText(lastLapSectorTimes[2])}</div>
+          <div className="flex flex-row justify-between text-center">
+            <div className="flex-grow">{msToText(lastLapSectorTimes[0])}, </div>
+            <div className="flex-grow">{msToText(lastLapSectorTimes[1])}, </div>
+            <div className="flex-grow">{msToText(lastLapSectorTimes[2])}</div>
           </div>
         </div>
       </div>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          marginTop: '5px',
-        }}
-      >
-        <div style={{ flexGrow: 1, ...getStyleFromMs(diffToFront) }}>
+      <div className="flex flex-row justify-between mt-1">
+        <div className={`flex-grow ${getClassNameFromMs(diffToFront)}`}>
           Front lap: {msToText(lastLapOfDriverInFront ?? 0)} (
           {msToText(diffToFront)})
         </div>
-        <div style={{ flexGrow: 1, ...getStyleFromMs(diffToBehind) }}>
+        <div className={`flex-grow ${getClassNameFromMs(diffToBehind)}`}>
           Behind lap: {msToText(lastLapOfDriverBehind ?? 0)} (
           {msToText(diffToBehind)})
         </div>
       </div>
       {/* <div>Last updated: {formatDistance(lastUpdated, new Date())}</div> */}
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          justifyContent: 'flex-start',
-          marginTop: '5px',
-        }}
-      >
-        <div style={{ flexGrow: 1 }}>
+      <div className="flex flex-row justify-start mt-1">
+        <div className="flex-grow">
           Fuel remaining:{' '}
           {roundToNearest(playerCarStatus?.m_fuel_remaining_laps ?? 0, 3)}
         </div>
-        <div style={{ flexGrow: 1 }}>
+        <div className="flex-grow">
           Tyres: {playerCarStatus?.m_tyres_age_laps}/
           {playerCurrentTyres?.m_lifeSpan} {playerCurrentTyres?.m_wear}%
         </div>
       </div>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-        }}
-      >
-        <div style={{ flexGrow: 1 }}>
+      <div className="flex flex-row justify-between">
+        <div className="flex-grow">
           <div>Weather: {session?.m_weather}</div>
           <div>Track temp: {session?.m_trackTemperature}</div>
           <div>Air temp: {session?.m_airTemperature}</div>
           <div>Session Type: {session?.m_sessionType}</div>
         </div>
-        <div style={{ flexGrow: 1 }}>
+        <div className="flex-grow">
           <div>
             Time left: {msToText(session?.m_sessionTimeLeft || 0, 's')}/
             {msToText(session?.m_sessionDuration || 0, 's')}
@@ -553,13 +451,7 @@ function Main() {
           <div>Pit rejoin position: {session?.m_pitStopRejoinPosition}</div>
         </div>
       </div>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          justifyContent: 'flex-start',
-        }}
-      >
+      <div className="flex flex-row justify-start">
         {weatherForecast.map((forecast) => (
           <div key={forecast.m_timeOffset}>
             {forecast.m_weather}:{forecast.m_timeOffset}
