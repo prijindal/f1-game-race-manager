@@ -127,13 +127,13 @@ const createWindow = async () => {
   const { width: screenWidth } = primaryDisplay.workAreaSize;
 
   const width = 320;
-  const height = 500;
+  const height = 440;
 
   mainWindow = new BrowserWindow({
     show: false,
     width,
     height,
-    y: 20,
+    y: 80,
     x: screenWidth - width,
     transparent: true,
     frame: false,

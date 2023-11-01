@@ -12,13 +12,14 @@ export default function DiffToLap({
 }) {
   return (
     <div className="border-y border-solid border-y-blue-800">
-      <div>{title}</div>
+      <div>
+        <span className="text-gray-400">{title}</span>
+      </div>
       <div className={`text-3xl ${getClassNameFromMs(diff)}`}>
         {msToText(diff)}
       </div>
       {sectorDiff != null && (
         <div>
-          Sector Times:
           <div className="flex flex-row justify-between text-center">
             <div className={`flex-grow ${getClassNameFromMs(sectorDiff[0])}`}>
               {msToText(sectorDiff[0])},{' '}

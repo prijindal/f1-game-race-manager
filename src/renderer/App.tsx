@@ -54,6 +54,25 @@ const timesFromLapData = (
   };
 };
 
+const diffSectors = (
+  thisLapSectors: number[],
+  comporableLapSectors: number[],
+) => {
+  return [
+    comporableLapSectors[0] !== 0
+      ? 0
+      : thisLapSectors[0] - comporableLapSectors[0],
+
+    comporableLapSectors[1] !== 0
+      ? 0
+      : thisLapSectors[1] - comporableLapSectors[1],
+
+    comporableLapSectors[2] !== 0
+      ? 0
+      : thisLapSectors[2] - comporableLapSectors[2],
+  ];
+};
+
 function Main() {
   const [prevLapsData, setPrevLapsData] = useState<Record<number, PrevLapData>>(
     {},
@@ -228,9 +247,11 @@ function Main() {
       return null;
     }
     const bestLapNumber = personalSessionHistory.m_bestLapTimeLapNum;
+    const bestLapHistory =
+      personalSessionHistory.m_lapHistoryData[bestLapNumber];
     const bestLap = prevLapsData[bestLapNumber];
 
-    return { bestLap, bestLapNumber };
+    return { bestLap, bestLapNumber, bestLapHistory };
   }, [personalSessionHistory, prevLapsData]);
 
   const lastLapOfDriver = useCallback(
@@ -336,7 +357,7 @@ function Main() {
               (selfLapData.m_sector1TimeInMS + selfLapData.m_sector2TimeInMS),
         ];
 
-  const { diff: diffToBestLap } = timesFromLapData(
+  const { diff: diffToBestPersonalLap } = timesFromLapData(
     personalBestLap?.bestLap || null,
     selfLapData,
   );
@@ -352,22 +373,24 @@ function Main() {
               prevLapData.selfLapData.m_sector2TimeInMS),
         ];
 
-  const diffToLastLapSector =
-    selfLapData == null
+  const bestPersonalLapSectorTimes =
+    personalBestLap == null
       ? [0, 0, 0]
       : [
-          lastLapSectorTimes[0] !== 0 && selfLapData.m_sector <= 0
-            ? 0
-            : thisLapSectorTimes[0] - lastLapSectorTimes[0],
-
-          lastLapSectorTimes[1] !== 0 && selfLapData.m_sector <= 1
-            ? 0
-            : thisLapSectorTimes[1] - lastLapSectorTimes[1],
-
-          lastLapSectorTimes[2] !== 0 && selfLapData.m_sector <= 2
-            ? 0
-            : thisLapSectorTimes[2] - lastLapSectorTimes[2],
+          personalBestLap.bestLapHistory.m_sector1TimeInMS,
+          personalBestLap.bestLapHistory.m_sector2TimeInMS,
+          personalBestLap.bestLapHistory.m_sector3TimeInMS,
         ];
+
+  const diffToLastLapSector = diffSectors(
+    thisLapSectorTimes,
+    lastLapSectorTimes,
+  );
+
+  const diffToBestPersonalLapSector = diffSectors(
+    thisLapSectorTimes,
+    bestPersonalLapSectorTimes,
+  );
 
   const shouldHide =
     false && differenceInSeconds(currentTime, lastUpdated) > 15;
@@ -384,20 +407,24 @@ function Main() {
         sectorDiff={diffToLastLapSector}
       />
       <DiffToLap
-        title="Diff to Best Lap:"
-        diff={diffToBestLap}
-        sectorDiff={undefined}
+        title="Diff to Personal Best Lap:"
+        diff={diffToBestPersonalLap}
+        sectorDiff={diffToBestPersonalLapSector}
       />
 
       <div className="flex flex-row justify-between">
         <div className="flex-grow">
-          Current Lap: {msToText(currentLapTimeInMS)}
+          <span className="text-gray-400">Current Lap: </span>
+          {msToText(currentLapTimeInMS)}
         </div>
-        <div className="flex-grow">Last Lap: {msToText(lastLapTimeInMs)}</div>
+        <div className="flex-grow">
+          <span className="text-gray-400">Last Lap: </span>
+          {msToText(lastLapTimeInMs)}
+        </div>
       </div>
       <div className="flex flex-row justify-between">
         <div className="flex-grow">
-          Current sectors:
+          <span className="text-gray-400">Current sectors:</span>
           <div className="flex flex-row justify-between text-center">
             <div className="flex-grow">{msToText(thisLapSectorTimes[0])}, </div>
             <div className="flex-grow">{msToText(thisLapSectorTimes[1])}, </div>
@@ -405,7 +432,7 @@ function Main() {
           </div>
         </div>
         <div className="flex-grow">
-          Last sectors:
+          <span className="text-gray-400">Last sectors:</span>
           <div className="flex flex-row justify-between text-center">
             <div className="flex-grow">{msToText(lastLapSectorTimes[0])}, </div>
             <div className="flex-grow">{msToText(lastLapSectorTimes[1])}, </div>
@@ -413,42 +440,77 @@ function Main() {
           </div>
         </div>
       </div>
-      <div className="flex flex-row justify-between mt-1">
-        <div className={`flex-grow ${getClassNameFromMs(diffToFront)}`}>
-          Front lap: {msToText(lastLapOfDriverInFront ?? 0)} (
-          {msToText(diffToFront)})
+      <div className="mt-1">
+        <div
+          className={`flex flex-row justify-start ${getClassNameFromMs(
+            diffToFront,
+          )}`}
+        >
+          <span className="mr-1 text-gray-400">Front lap: </span>
+          <div>
+            {msToText(lastLapOfDriverInFront ?? 0)} ({msToText(diffToFront)})
+          </div>
         </div>
-        <div className={`flex-grow ${getClassNameFromMs(diffToBehind)}`}>
-          Behind lap: {msToText(lastLapOfDriverBehind ?? 0)} (
-          {msToText(diffToBehind)})
+        <div
+          className={`flex flex-row justify-start ${getClassNameFromMs(
+            diffToBehind,
+          )}`}
+        >
+          <span className="mr-1 text-gray-400">Behind lap: </span>
+          <div>
+            {msToText(lastLapOfDriverBehind ?? 0)} ({msToText(diffToBehind)})
+          </div>
         </div>
       </div>
       {/* <div>Last updated: {formatDistance(lastUpdated, new Date())}</div> */}
       <div className="flex flex-row justify-start mt-1">
         <div className="flex-grow">
-          Fuel remaining:{' '}
+          <span className="text-gray-400">Fuel remaining: </span>
           {roundToNearest(playerCarStatus?.m_fuel_remaining_laps ?? 0, 3)}
         </div>
         <div className="flex-grow">
-          Tyres: {playerCarStatus?.m_tyres_age_laps}/
-          {playerCurrentTyres?.m_lifeSpan} {playerCurrentTyres?.m_wear}%
+          <span className="text-gray-400">Tyres: </span>
+          {playerCarStatus?.m_tyres_age_laps}/{playerCurrentTyres?.m_lifeSpan}{' '}
+          {playerCurrentTyres?.m_wear}%
         </div>
       </div>
       <div className="flex flex-row justify-between">
         <div className="flex-grow">
-          <div>Weather: {session?.m_weather}</div>
-          <div>Track temp: {session?.m_trackTemperature}</div>
-          <div>Air temp: {session?.m_airTemperature}</div>
-          <div>Session Type: {session?.m_sessionType}</div>
+          <div>
+            <span className="text-gray-400">Weather: </span>
+            {session?.m_weather}
+          </div>
+          <div>
+            <span className="text-gray-400">Track temp: </span>
+            {session?.m_trackTemperature}
+          </div>
+          <div>
+            <span className="text-gray-400">Air temp: </span>
+            {session?.m_airTemperature}
+          </div>
+          <div>
+            <span className="text-gray-400">Session Type: </span>
+            {session?.m_sessionType}
+          </div>
         </div>
         <div className="flex-grow">
           <div>
-            Time left: {msToText(session?.m_sessionTimeLeft || 0, 's')}/
+            <span className="text-gray-400">Time left: </span>
+            {msToText(session?.m_sessionTimeLeft || 0, 's')}/
             {msToText(session?.m_sessionDuration || 0, 's')}
           </div>
-          <div>Pit Lap ideal: {session?.m_pitStopWindowIdealLap}</div>
-          <div>Pit Lap latest: {session?.m_pitStopWindowLatestLap}</div>
-          <div>Pit rejoin position: {session?.m_pitStopRejoinPosition}</div>
+          <div>
+            <span className="text-gray-400">Pit Lap ideal: </span>
+            {session?.m_pitStopWindowIdealLap}
+          </div>
+          <div>
+            <span className="text-gray-400">Pit Lap latest: </span>
+            {session?.m_pitStopWindowLatestLap}
+          </div>
+          <div>
+            <span className="text-gray-400">Pit rejoin position: </span>
+            {session?.m_pitStopRejoinPosition}
+          </div>
         </div>
       </div>
       <div className="flex flex-row justify-start">
