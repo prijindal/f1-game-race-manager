@@ -55,6 +55,30 @@ f123.on('sessionHistory', (data) => {
   }
 });
 
+f123.on('event', (data) => {
+  if (mainWindow != null) {
+    mainWindow.webContents.send('event', data);
+  }
+});
+
+f123.on('session', (data) => {
+  if (mainWindow != null) {
+    mainWindow.webContents.send('session', data);
+  }
+});
+
+f123.on('carStatus', (data) => {
+  if (mainWindow != null) {
+    mainWindow.webContents.send('carStatus', data);
+  }
+});
+
+f123.on('tyreSets', (data) => {
+  if (mainWindow != null) {
+    mainWindow.webContents.send('tyreSets', data);
+  }
+});
+
 ipcMain.on('ipc-example', async (event, arg) => {
   const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
   console.log(msgTemplate(arg));
@@ -102,8 +126,8 @@ const createWindow = async () => {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth } = primaryDisplay.workAreaSize;
 
-  const width = 280;
-  const height = 290;
+  const width = 320;
+  const height = 320;
 
   mainWindow = new BrowserWindow({
     show: false,
@@ -113,7 +137,7 @@ const createWindow = async () => {
     x: screenWidth - width,
     transparent: true,
     frame: false,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backgroundColor: 'rgba(0, 0, 0, 0.0)',
     alwaysOnTop: true,
     icon: getAssetPath('icon.png'),
     webPreferences: {

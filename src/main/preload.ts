@@ -6,7 +6,11 @@ export type Channels =
   | 'ipc-example'
   | 'lapData'
   | 'participants'
-  | 'sessionHistory';
+  | 'sessionHistory'
+  | 'event'
+  | 'session'
+  | 'carStatus'
+  | 'tyreSets';
 
 const electronHandler = {
   ipcRenderer: {

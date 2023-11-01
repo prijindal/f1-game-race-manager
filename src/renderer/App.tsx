@@ -6,7 +6,12 @@ import type {
   LapData,
   PacketParticipantsData,
   PacketSessionHistoryData,
+  PacketEventData,
+  PacketCarStatusData,
+  PacketSessionData,
+  PacketTyreSetsData,
 } from 'f1-23-udp';
+import { differenceInSeconds, formatDistance, subDays } from 'date-fns';
 
 const padZeros = (num: number, pad: number) => {
   if (num >= 0) {
@@ -15,43 +20,39 @@ const padZeros = (num: number, pad: number) => {
   return `-${Math.abs(num).toString().padStart(pad, '0')}`;
 };
 
-const msToText = (time: number) => {
+function roundToNearest(num: number, digits: number) {
+  const factor = 10 ** digits;
+  return Math.round(num * factor) / factor;
+}
+
+const msToText = (time: number, inputFormat: 'ms' | 's' = 'ms') => {
   let text = '';
   let s = time;
+  if (inputFormat === 's') {
+    s *= 1000;
+  }
   const ms = s % 1000;
-  text = `.${padZeros(ms, 3)}${text}`;
+  if (inputFormat === 'ms') {
+    text = `.${padZeros(ms, 3)}${text}`;
+  }
   s = (s - ms) / 1000;
   const secs = s % 60;
-  if (Math.abs(secs) > 0) {
+  if (Math.abs(s) > 0) {
     text = `${padZeros(secs, 2)}${text}`;
   }
   s = (s - secs) / 60;
-  const mins = s % 60;
-  if (Math.abs(mins) > 0) {
+  const mins = s;
+  if (Math.abs(s) > 0) {
     text = `${padZeros(mins, 2)}:${text}`;
   }
   return text;
-
-  // return `${padZeros(mins, 2)}:${padZeros(secs, 2)}.${padZeros(ms, 3)}`;
-  // return ms.toString();
-  // const duration = intervalToDuration({ start: 0, end: ms });
-
-  // const formatted = formatDuration(duration, {
-  //   format: ['minutes', 'seconds', 'milliseconds'],
-  //   // format: ["hours", "minutes", "seconds"],
-  //   zero: true,
-  //   delimiter: ':',
-  // });
-
-  // return formatted;
 };
-
 type PrevLapData = {
   distanceToLapTime: Record<number, number>;
   selfLapData: LapData;
 };
 
-function Hello() {
+function Main() {
   const [prevLapsData, setPrevLapsData] = useState<Record<number, PrevLapData>>(
     {},
   );
@@ -64,6 +65,26 @@ function Hello() {
 
   const [participants, setParticipants] =
     useState<PacketParticipantsData | null>();
+
+  const [session, setSession] = useState<PacketSessionData | null>();
+  const [carStatus, setCarStatus] = useState<PacketCarStatusData | null>();
+
+  const [tyreSets, setTyreSets] = useState<Record<number, PacketTyreSetsData>>(
+    {},
+  );
+
+  const [lastUpdated, setLastUpdated] = useState<Date>(subDays(new Date(), 1));
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     console.log('Running use effect');
@@ -78,7 +99,13 @@ function Hello() {
         ) {
           setCurrentLapData(null);
           setPrevLapsData({});
+          setParticipants(null);
+          setSessionHistory({});
+          setSession(null);
+          setCarStatus(null);
+          setTyreSets({});
         }
+        setLastUpdated(new Date());
         setCurrentLapData(data);
         // console.log(currentLapData);
         if (data != null) {
@@ -125,8 +152,41 @@ function Hello() {
   }, []);
 
   useEffect(() => {
+    const listener = window.electron.ipcRenderer.on('tyreSets', (arg) => {
+      const data = arg as PacketTyreSetsData;
+      tyreSets[data.m_carIdx] = data;
+      setTyreSets(tyreSets);
+    });
+
+    return () => {
+      listener();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     const listener = window.electron.ipcRenderer.on('participants', (data) => {
       setParticipants(data as PacketParticipantsData);
+    });
+
+    return () => {
+      listener();
+    };
+  }, []);
+
+  useEffect(() => {
+    const listener = window.electron.ipcRenderer.on('session', (data) => {
+      setSession(data as PacketSessionData);
+    });
+
+    return () => {
+      listener();
+    };
+  }, []);
+
+  useEffect(() => {
+    const listener = window.electron.ipcRenderer.on('carStatus', (data) => {
+      setCarStatus(data as PacketCarStatusData);
     });
 
     return () => {
@@ -203,6 +263,46 @@ function Hello() {
     return lastLapOfDriver(selfLapData.m_carPosition + 1);
   }, [lastLapOfDriver, selfLapData]);
 
+  const playerCarStatus = useMemo(() => {
+    if (carStatus == null) {
+      return null;
+    }
+    const carIndex = carStatus.m_header.player_car_index;
+    return carStatus.m_car_status_data[carIndex];
+  }, [carStatus]);
+
+  const weatherForecast = useMemo(() => {
+    const weatherChanges: { m_timeOffset: number; m_weather: number }[] = [];
+    if (session == null) {
+      return weatherChanges;
+    }
+    let currentWeather = session.m_weather;
+    let i = 0;
+    while (i < session.m_numWeatherForecastSamples) {
+      const wForecast = session.m_weatherForecastSamples[i];
+      if (wForecast.m_weather !== currentWeather) {
+        currentWeather = wForecast.m_weather;
+        weatherChanges.push({
+          m_timeOffset: wForecast.m_timeOffset,
+          m_weather: wForecast.m_weather,
+        });
+      }
+      i += 1;
+    }
+    return weatherChanges;
+  }, [session]);
+
+  const playerCurrentTyres = useMemo(() => {
+    if (currentLapData == null) {
+      return null;
+    }
+    const playerTyreSets = tyreSets[currentLapData.m_header.player_car_index];
+    if (playerTyreSets == null) {
+      return null;
+    }
+    return playerTyreSets.m_tyreSetData[playerTyreSets.m_fittedIdx];
+  }, [currentLapData, tyreSets]);
+
   const currentLapTimeInMS =
     selfLapData == null ? 0 : selfLapData.m_currentLapTimeInMS;
 
@@ -277,11 +377,29 @@ function Hello() {
     return {};
   };
 
-  return (
-    <div>
+  if (differenceInSeconds(currentTime, lastUpdated) > 15) {
+    return (
       <div
         style={{
-          marginBottom: '20px',
+          height: '100%',
+          width: '90%',
+          borderLeft: `1px solid rgba(7, 68, 232)`,
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      style={{
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        height: '100%',
+        width: '100%',
+      }}
+    >
+      <div
+        style={{
+          marginBottom: '5px',
           borderTop: `1px solid rgba(7, 68, 232)`,
           borderBottom: `1px solid rgba(7, 68, 232)`,
         }}
@@ -319,11 +437,27 @@ function Hello() {
         </div>
       </div>
 
-      <div>Current Lap: {msToText(currentLapTimeInMS)}</div>
-      <div>Last Lap Time: {msToText(lastLapTimeInMs)}</div>
-      <div style={{ marginTop: '20px' }}>
-        <div>
-          Current Lap sector times:
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div style={{ flexGrow: 1 }}>
+          Current Lap: {msToText(currentLapTimeInMS)}
+        </div>
+        <div style={{ flexGrow: 1 }}>Last Lap: {msToText(lastLapTimeInMs)}</div>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div style={{ flexGrow: 1 }}>
+          Current sectors:
           <div
             style={{
               display: 'flex',
@@ -341,8 +475,8 @@ function Hello() {
             <div style={{ flexGrow: 1 }}>{msToText(thisLapSectorTimes[2])}</div>
           </div>
         </div>
-        <div>
-          Last Lap sector times:
+        <div style={{ flexGrow: 1 }}>
+          Last sectors:
           <div
             style={{
               display: 'flex',
@@ -361,15 +495,76 @@ function Hello() {
           </div>
         </div>
       </div>
-      <div>
-        <div style={getStyleFromMs(diffToFront)}>
-          Last lap in front: {msToText(lastLapOfDriverInFront ?? 0)} (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          marginTop: '5px',
+        }}
+      >
+        <div style={{ flexGrow: 1, ...getStyleFromMs(diffToFront) }}>
+          Front lap: {msToText(lastLapOfDriverInFront ?? 0)} (
           {msToText(diffToFront)})
         </div>
-        <div style={getStyleFromMs(diffToBehind)}>
-          Last lap behind: {msToText(lastLapOfDriverBehind ?? 0)} (
+        <div style={{ flexGrow: 1, ...getStyleFromMs(diffToBehind) }}>
+          Behind lap: {msToText(lastLapOfDriverBehind ?? 0)} (
           {msToText(diffToBehind)})
         </div>
+      </div>
+      {/* <div>Last updated: {formatDistance(lastUpdated, new Date())}</div> */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          justifyContent: 'flex-start',
+          marginTop: '5px',
+        }}
+      >
+        <div style={{ flexGrow: 1 }}>
+          Fuel remaining:{' '}
+          {roundToNearest(playerCarStatus?.m_fuel_remaining_laps ?? 0, 3)}
+        </div>
+        <div style={{ flexGrow: 1 }}>
+          Tyres: {playerCarStatus?.m_tyres_age_laps}/
+          {playerCurrentTyres?.m_lifeSpan} {playerCurrentTyres?.m_wear}%
+        </div>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div style={{ flexGrow: 1 }}>
+          <div>Weather: {session?.m_weather}</div>
+          <div>Track temp: {session?.m_trackTemperature}</div>
+          <div>Air temp: {session?.m_airTemperature}</div>
+          <div>Session Type: {session?.m_sessionType}</div>
+        </div>
+        <div style={{ flexGrow: 1 }}>
+          <div>
+            Time left: {msToText(session?.m_sessionTimeLeft || 0, 's')}/
+            {msToText(session?.m_sessionDuration || 0, 's')}
+          </div>
+          <div>Pit Lap ideal: {session?.m_pitStopWindowIdealLap}</div>
+          <div>Pit Lap latest: {session?.m_pitStopWindowLatestLap}</div>
+          <div>Pit rejoin position: {session?.m_pitStopRejoinPosition}</div>
+        </div>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          justifyContent: 'flex-start',
+        }}
+      >
+        {weatherForecast.map((forecast) => (
+          <div key={forecast.m_timeOffset}>
+            {forecast.m_weather}:{forecast.m_timeOffset}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -379,7 +574,7 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Hello />} />
+        <Route path="/" element={<Main />} />
       </Routes>
     </Router>
   );
