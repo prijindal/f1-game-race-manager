@@ -59,15 +59,13 @@ const diffSectors = (
   comporableLapSectors: number[],
 ) => {
   return [
-    comporableLapSectors[0] !== 0
+    thisLapSectors[0] === 0 || comporableLapSectors[0] === 0
       ? 0
       : thisLapSectors[0] - comporableLapSectors[0],
-
-    comporableLapSectors[1] !== 0
+    thisLapSectors[1] === 0 || comporableLapSectors[1] === 0
       ? 0
       : thisLapSectors[1] - comporableLapSectors[1],
-
-    comporableLapSectors[2] !== 0
+    thisLapSectors[2] === 0 || comporableLapSectors[2] === 0
       ? 0
       : thisLapSectors[2] - comporableLapSectors[2],
   ];
@@ -230,17 +228,17 @@ function Main() {
   }, [prevLapsData, selfLapData]);
 
   const personalSessionHistory = useMemo(() => {
-    if (sessionHistory != null) {
+    if (sessionHistory != null && currentLapData != null) {
       // eslint-disable-next-line no-restricted-syntax, guard-for-in
       for (const key in sessionHistory) {
         const sessionHist = sessionHistory[key];
-        if (sessionHist.m_header.player_car_index === sessionHist.m_carIdx) {
+        if (sessionHist.m_carIdx === currentLapData.m_header.player_car_index) {
           return sessionHist;
         }
       }
     }
     return null;
-  }, [sessionHistory]);
+  }, [sessionHistory, currentLapData]);
 
   const personalBestLap = useMemo(() => {
     if (personalSessionHistory == null) {
@@ -248,7 +246,9 @@ function Main() {
     }
     const bestLapNumber = personalSessionHistory.m_bestLapTimeLapNum;
     const bestLapHistory =
-      personalSessionHistory.m_lapHistoryData[bestLapNumber];
+      personalSessionHistory.m_lapHistoryData.length < bestLapNumber
+        ? null
+        : personalSessionHistory.m_lapHistoryData[bestLapNumber - 1];
     const bestLap = prevLapsData[bestLapNumber];
 
     return { bestLap, bestLapNumber, bestLapHistory };
@@ -362,19 +362,24 @@ function Main() {
     selfLapData,
   );
 
-  const lastLapSectorTimes =
-    selfLapData == null || prevLapData == null
-      ? [0, 0, 0]
-      : [
-          prevLapData.selfLapData.m_sector1TimeInMS,
-          prevLapData.selfLapData.m_sector2TimeInMS,
-          selfLapData.m_lastLapTimeInMS -
-            (prevLapData.selfLapData.m_sector1TimeInMS +
-              prevLapData.selfLapData.m_sector2TimeInMS),
-        ];
+  const lastLapSectorTimes = useMemo(() => {
+    if (selfLapData == null || personalSessionHistory == null) {
+      return [0, 0, 0];
+    }
+    const lastLapHistory =
+      personalSessionHistory.m_lapHistoryData[selfLapData.m_currentLapNum - 2];
+    if (lastLapHistory == null) {
+      return [0, 0, 0];
+    }
+    return [
+      lastLapHistory.m_sector1TimeInMS,
+      lastLapHistory.m_sector2TimeInMS,
+      lastLapHistory.m_sector3TimeInMS,
+    ];
+  }, [selfLapData, personalSessionHistory]);
 
   const bestPersonalLapSectorTimes =
-    personalBestLap == null
+    personalBestLap == null || personalBestLap.bestLapHistory == null
       ? [0, 0, 0]
       : [
           personalBestLap.bestLapHistory.m_sector1TimeInMS,
@@ -382,18 +387,22 @@ function Main() {
           personalBestLap.bestLapHistory.m_sector3TimeInMS,
         ];
 
+  // console.log(thisLapSectorTimes, lastLapSectorTimes);
+  // console.log(thisLapSectorTimes, bestPersonalLapSectorTimes);
+
   const diffToLastLapSector = diffSectors(
     thisLapSectorTimes,
     lastLapSectorTimes,
   );
+
+  // console.log(diffToLastLapSector);
 
   const diffToBestPersonalLapSector = diffSectors(
     thisLapSectorTimes,
     bestPersonalLapSectorTimes,
   );
 
-  const shouldHide =
-    false && differenceInSeconds(currentTime, lastUpdated) > 15;
+  const shouldHide = differenceInSeconds(currentTime, lastUpdated) > 15;
 
   return (
     <div
