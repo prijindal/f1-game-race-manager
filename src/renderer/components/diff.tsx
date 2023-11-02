@@ -4,20 +4,26 @@ import { getClassNameFromMs, msToText } from '../helpers/util';
 export default function DiffToLap({
   title,
   diff,
+  lapTime,
   sectorDiff,
 }: {
   title: string;
-  diff: number;
+  diff: number | undefined;
+  lapTime: number | undefined;
   sectorDiff: number[] | undefined;
 }) {
   return (
     <div className="border-y border-solid border-y-blue-800">
       <div>
-        <span className="text-gray-400">{title}</span>
+        <span className="text-gray-400">
+          {title} ({lapTime == null ? '' : msToText(lapTime)})
+        </span>
       </div>
-      <div className={`text-3xl ${getClassNameFromMs(diff)}`}>
-        {msToText(diff)}
-      </div>
+      {diff != null && (
+        <div className={`text-3xl ${getClassNameFromMs(diff)}`}>
+          {msToText(diff)}
+        </div>
+      )}
       {sectorDiff != null && (
         <div>
           <div className="flex flex-row justify-between text-center">

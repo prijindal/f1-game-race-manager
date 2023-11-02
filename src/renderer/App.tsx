@@ -5,53 +5,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   PacketLapData,
   LapData,
-  PacketParticipantsData,
   PacketSessionHistoryData,
-  PacketEventData,
   PacketCarStatusData,
   PacketSessionData,
   PacketTyreSetsData,
 } from 'f1-23-udp';
 import { differenceInSeconds, subDays } from 'date-fns';
-import { roundToNearest, msToText, getClassNameFromMs } from './helpers/util';
+import {
+  roundToNearest,
+  msToText,
+  getClassNameFromMs,
+  PrevLapData,
+  timesFromLapData,
+} from './helpers/util';
 import DiffToLap from './components/diff';
 
-type PrevLapData = {
-  distanceToLapTime: Record<number, number>;
-  selfLapData: LapData;
-};
-
-const timesFromLapData = (
-  lapData: PrevLapData | null,
-  selfLapData: LapData | null,
-) => {
-  if (lapData != null && selfLapData != null) {
-    // console.log(prevLapData);
-    let maxDistance = 0;
-    let lapDistanceTime: number = 0;
-    // eslint-disable-next-line no-restricted-syntax
-    for (const d of Object.keys(lapData.distanceToLapTime)) {
-      const currentDistance = parseFloat(d);
-      if (
-        selfLapData.m_lapDistance >= currentDistance &&
-        currentDistance > maxDistance
-      ) {
-        maxDistance = currentDistance;
-        lapDistanceTime = lapData.distanceToLapTime[currentDistance];
-      }
-    }
-    return {
-      lapDistanceTime,
-      diff:
-        lapDistanceTime == null
-          ? 0
-          : selfLapData.m_currentLapTimeInMS - lapDistanceTime,
-    };
-  }
-  return {
-    lapDistanceTime: 0,
-    diff: 0,
-  };
+const weatherToText = {
+  0: 'clear',
+  1: 'light cloud',
+  2: 'overcast',
+  3: 'light rain',
+  4: 'heavy rain',
+  5: 'storm',
 };
 
 const diffSectors = (
@@ -71,10 +46,10 @@ const diffSectors = (
   ];
 };
 
+type PrevLapsData = Record<number, PrevLapData>;
+
 function Main() {
-  const [prevLapsData, setPrevLapsData] = useState<Record<number, PrevLapData>>(
-    {},
-  );
+  const [prevLapsData, setPrevLapsData] = useState<PrevLapsData>({});
 
   const [currentLapData, setCurrentLapData] = useState<PacketLapData | null>();
 
@@ -82,8 +57,8 @@ function Main() {
     Record<number, PacketSessionHistoryData>
   >({});
 
-  const [participants, setParticipants] =
-    useState<PacketParticipantsData | null>();
+  // const [participants, setParticipants] =
+  //   useState<PacketParticipantsData | null>();
 
   const [session, setSession] = useState<PacketSessionData | null>();
   const [carStatus, setCarStatus] = useState<PacketCarStatusData | null>();
@@ -98,7 +73,7 @@ function Main() {
   useEffect(() => {
     const intervalId = setInterval(() => {
       setCurrentTime(new Date());
-    }, 1000);
+    }, 5000);
 
     return () => {
       clearInterval(intervalId);
@@ -106,7 +81,6 @@ function Main() {
   }, []);
 
   useEffect(() => {
-    console.log('Running use effect');
     const listener = window.electron.ipcRenderer.on(
       'lapData',
       (arg: unknown) => {
@@ -118,7 +92,7 @@ function Main() {
         ) {
           setCurrentLapData(null);
           setPrevLapsData({});
-          setParticipants(null);
+          // setParticipants(null);
           setSessionHistory({});
           setSession(null);
           setCarStatus(null);
@@ -146,12 +120,12 @@ function Main() {
             }
           }
           setPrevLapsData(prevLapsData);
+          // console.log(`State set for ${localSelfLapData.m_lapDistance}`);
         }
       },
     );
 
     return () => {
-      console.log('Destroying');
       listener();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,15 +157,15 @@ function Main() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    const listener = window.electron.ipcRenderer.on('participants', (data) => {
-      setParticipants(data as PacketParticipantsData);
-    });
+  // useEffect(() => {
+  //   const listener = window.electron.ipcRenderer.on('participants', (data) => {
+  //     setParticipants(data as PacketParticipantsData);
+  //   });
 
-    return () => {
-      listener();
-    };
-  }, []);
+  //   return () => {
+  //     listener();
+  //   };
+  // }, []);
 
   useEffect(() => {
     const listener = window.electron.ipcRenderer.on('session', (data) => {
@@ -254,6 +228,43 @@ function Main() {
     return { bestLap, bestLapNumber, bestLapHistory };
   }, [personalSessionHistory, prevLapsData]);
 
+  // const overallBestLap = useMemo(() => {
+  //   if (sessionHistory != null && currentLapData != null) {
+  //     let fastestLapInMs = Number.MAX_SAFE_INTEGER;
+  //     let fastestLapPlayerKey = 0;
+  //     // eslint-disable-next-line no-restricted-syntax, guard-for-in
+  //     for (const key in sessionHistory) {
+  //       const sessionHist = sessionHistory[key];
+  //       if (sessionHist != null) {
+  //         const bestLapNumber = sessionHist.m_bestLapTimeLapNum;
+  //         const bestLapHistory =
+  //           sessionHist.m_lapHistoryData.length < bestLapNumber
+  //             ? null
+  //             : sessionHist.m_lapHistoryData[bestLapNumber - 1];
+  //         if (
+  //           bestLapHistory != null &&
+  //           bestLapHistory.m_lapTimeInMS < fastestLapInMs
+  //         ) {
+  //           fastestLapInMs = bestLapHistory.m_lapTimeInMS;
+  //           fastestLapPlayerKey = parseInt(key, 10);
+  //         }
+  //       }
+  //     }
+
+  //     const sessionHist = sessionHistory[fastestLapPlayerKey];
+  //     if (sessionHist == null) {
+  //       return null;
+  //     }
+  //     const bestLapNumber = sessionHist.m_bestLapTimeLapNum;
+  //     const bestLapHistory =
+  //       sessionHist.m_lapHistoryData.length < bestLapNumber
+  //         ? null
+  //         : sessionHist.m_lapHistoryData[bestLapNumber - 1];
+  //     return { bestLapNumber, bestLapHistory };
+  //   }
+  //   return null;
+  // }, [currentLapData, sessionHistory]);
+
   const lastLapOfDriver = useCallback(
     (driverPosition: number) => {
       if (currentLapData == null) {
@@ -305,7 +316,10 @@ function Main() {
     let i = 0;
     while (i < session.m_numWeatherForecastSamples) {
       const wForecast = session.m_weatherForecastSamples[i];
-      if (wForecast.m_weather !== currentWeather) {
+      if (
+        wForecast.m_weather !== currentWeather &&
+        session.m_sessionType === wForecast.m_sessionType
+      ) {
         currentWeather = wForecast.m_weather;
         weatherChanges.push({
           m_timeOffset: wForecast.m_timeOffset,
@@ -343,7 +357,10 @@ function Main() {
       ? 0
       : lastLapTimeInMs - lastLapOfDriverBehind;
 
-  const { diff: diffToLastLap } = timesFromLapData(prevLapData, selfLapData);
+  const { diff: diffToLastLap } = useMemo(
+    () => timesFromLapData(prevLapData, selfLapData),
+    [prevLapData, selfLapData],
+  );
 
   const thisLapSectorTimes =
     selfLapData == null
@@ -387,8 +404,14 @@ function Main() {
           personalBestLap.bestLapHistory.m_sector3TimeInMS,
         ];
 
-  // console.log(thisLapSectorTimes, lastLapSectorTimes);
-  // console.log(thisLapSectorTimes, bestPersonalLapSectorTimes);
+  // const overallBestLapSectorTimes =
+  //   overallBestLap == null || overallBestLap.bestLapHistory == null
+  //     ? [0, 0, 0]
+  //     : [
+  //         overallBestLap.bestLapHistory.m_sector1TimeInMS,
+  //         overallBestLap.bestLapHistory.m_sector2TimeInMS,
+  //         overallBestLap.bestLapHistory.m_sector3TimeInMS,
+  //       ];
 
   const diffToLastLapSector = diffSectors(
     thisLapSectorTimes,
@@ -402,6 +425,11 @@ function Main() {
     bestPersonalLapSectorTimes,
   );
 
+  // const diffToOverallBestLapSector = diffSectors(
+  //   thisLapSectorTimes,
+  //   overallBestLapSectorTimes,
+  // );
+
   const shouldHide = differenceInSeconds(currentTime, lastUpdated) > 15;
 
   return (
@@ -413,25 +441,27 @@ function Main() {
       <DiffToLap
         title="Diff to Last Lap:"
         diff={diffToLastLap}
+        lapTime={lastLapTimeInMs}
         sectorDiff={diffToLastLapSector}
       />
       <DiffToLap
         title="Diff to Personal Best Lap:"
         diff={diffToBestPersonalLap}
+        lapTime={personalBestLap?.bestLapHistory?.m_lapTimeInMS || undefined}
         sectorDiff={diffToBestPersonalLapSector}
       />
-
+      {/* <DiffToLap
+        title="Diff to Overall Best Lap:"
+        diff={undefined}
+        sectorDiff={diffToOverallBestLapSector}
+      /> */}
       <div className="flex flex-row justify-between">
         <div className="flex-grow">
           <span className="text-gray-400">Current Lap: </span>
           {msToText(currentLapTimeInMS)}
         </div>
-        <div className="flex-grow">
-          <span className="text-gray-400">Last Lap: </span>
-          {msToText(lastLapTimeInMs)}
-        </div>
       </div>
-      <div className="flex flex-row justify-between">
+      {/* <div className="flex flex-row justify-between">
         <div className="flex-grow">
           <span className="text-gray-400">Current sectors:</span>
           <div className="flex flex-row justify-between text-center">
@@ -440,15 +470,7 @@ function Main() {
             <div className="flex-grow">{msToText(thisLapSectorTimes[2])}</div>
           </div>
         </div>
-        <div className="flex-grow">
-          <span className="text-gray-400">Last sectors:</span>
-          <div className="flex flex-row justify-between text-center">
-            <div className="flex-grow">{msToText(lastLapSectorTimes[0])}, </div>
-            <div className="flex-grow">{msToText(lastLapSectorTimes[1])}, </div>
-            <div className="flex-grow">{msToText(lastLapSectorTimes[2])}</div>
-          </div>
-        </div>
-      </div>
+      </div> */}
       <div className="mt-1">
         <div
           className={`flex flex-row justify-start ${getClassNameFromMs(
@@ -474,7 +496,7 @@ function Main() {
       {/* <div>Last updated: {formatDistance(lastUpdated, new Date())}</div> */}
       <div className="flex flex-row justify-start mt-1">
         <div className="flex-grow">
-          <span className="text-gray-400">Fuel remaining: </span>
+          <span className="text-gray-400">Fuel left: </span>
           {roundToNearest(playerCarStatus?.m_fuel_remaining_laps ?? 0, 3)}
         </div>
         <div className="flex-grow">
@@ -524,8 +546,9 @@ function Main() {
       </div>
       <div className="flex flex-row justify-start">
         {weatherForecast.map((forecast) => (
-          <div key={forecast.m_timeOffset}>
-            {forecast.m_weather}:{forecast.m_timeOffset}
+          <div key={forecast.m_timeOffset} className="mr-2">
+            {forecast.m_timeOffset}:{(weatherToText as any)[forecast.m_weather]}{' '}
+            ({forecast.m_weather})
           </div>
         ))}
       </div>
