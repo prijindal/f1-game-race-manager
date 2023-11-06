@@ -5934,8 +5934,14 @@ const lapData: PrevLapData = {
   },
 };
 
-const lapDisatnce = 1015;
+describe('Test timesFromLapData calculation', () => {
+  it('Test for middle of the lap', () => {
+    const lapDisatnce = 1015;
 
-const result = timesFromLapData(lapData, { m_lapDistance: lapDisatnce } as any);
+    const result = timesFromLapData(lapData, {
+      m_lapDistance: lapDisatnce,
+    } as any);
 
-// console.log(result);
+    expect(result.lapDistanceTime).toEqual(17502);
+  });
+});
