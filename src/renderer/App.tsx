@@ -9,6 +9,10 @@ import type {
   PacketCarStatusData,
   PacketSessionData,
   PacketTyreSetsData,
+  LapHistoryData,
+  PacketParticipantsData,
+  PacketEventData,
+  FlashbackData,
 } from 'f1-23-udp';
 import { differenceInSeconds, subDays } from 'date-fns';
 import {
@@ -60,8 +64,8 @@ function Main() {
     [k: string]: PacketSessionHistoryData;
   }>({});
 
-  // const [participants, setParticipants] =
-  //   useState<PacketParticipantsData | null>();
+  const [participants, setParticipants] =
+    useState<PacketParticipantsData | null>();
 
   const [session, setSession] = useState<PacketSessionData | null>();
   const [carStatus, setCarStatus] = useState<PacketCarStatusData | null>();
@@ -95,7 +99,7 @@ function Main() {
         ) {
           setCurrentLapData(null);
           setPrevLapsDriverData({});
-          // setParticipants(null);
+          setParticipants(null);
           setSessionHistory({});
           setSession(null);
           setCarStatus(null);
@@ -171,15 +175,15 @@ function Main() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // useEffect(() => {
-  //   const listener = window.electron.ipcRenderer.on('participants', (data) => {
-  //     setParticipants(data as PacketParticipantsData);
-  //   });
+  useEffect(() => {
+    const listener = window.electron.ipcRenderer.on('participants', (data) => {
+      setParticipants(data as PacketParticipantsData);
+    });
 
-  //   return () => {
-  //     listener();
-  //   };
-  // }, []);
+    return () => {
+      listener();
+    };
+  }, []);
 
   useEffect(() => {
     const listener = window.electron.ipcRenderer.on('session', (data) => {
@@ -200,6 +204,20 @@ function Main() {
       listener();
     };
   }, []);
+
+  // useEffect(() => {
+  //   const listener = window.electron.ipcRenderer.on('event', (data) => {
+  //     const event = data as PacketEventData;
+  //     if (event != null && event.m_eventStringCode === 'FLBK') {
+  //       const details = event.m_eventDetails as FlashbackData;
+  //       console.log(event.m_header, details);
+  //     }
+  //   });
+
+  //   return () => {
+  //     listener();
+  //   };
+  // }, []);
 
   const selfLapData: LapData | null = useMemo(() => {
     if (currentLapData == null) {
@@ -362,6 +380,62 @@ function Main() {
     return playerTyreSets.m_tyreSetData[playerTyreSets.m_fittedIdx];
   }, [currentLapData, tyreSets]);
 
+  const nearestTyreLap = useMemo(() => {
+    if (playerCurrentTyres != null && currentLapData != null) {
+      let nearestIndex = currentLapData.m_header.player_car_index;
+      let tyreWearDiff = Number.MAX_SAFE_INTEGER;
+      for (let i = 0; i < Object.keys(tyreSets).length; i += 1) {
+        const tyreSet = tyreSets[i];
+        if (tyreSet) {
+          const fittedTyres = tyreSet.m_tyreSetData[tyreSet.m_fittedIdx];
+          if (
+            fittedTyres.m_actualTyreCompound ===
+              playerCurrentTyres.m_actualTyreCompound &&
+            i !== currentLapData.m_header.player_car_index
+          ) {
+            if (
+              Math.abs(fittedTyres.m_wear - playerCurrentTyres.m_wear) <
+              tyreWearDiff
+            ) {
+              nearestIndex = i;
+              tyreWearDiff = Math.abs(
+                fittedTyres.m_wear - playerCurrentTyres.m_wear,
+              );
+            }
+          }
+        }
+      }
+      if (
+        currentLapData.m_lapData.length > nearestIndex &&
+        sessionHistory[nearestIndex] != null &&
+        prevLapsDriverData[nearestIndex] != null
+      ) {
+        const bestLapNumber =
+          currentLapData.m_lapData[nearestIndex].m_currentLapNum;
+        const bestLapHistory: LapHistoryData | undefined =
+          sessionHistory[nearestIndex].m_lapHistoryData[bestLapNumber - 1];
+        const bestLap: PrevLapData | undefined =
+          prevLapsDriverData[nearestIndex][bestLapNumber];
+        const driver =
+          participants != null &&
+          participants.m_participants.length > nearestIndex
+            ? participants.m_participants[nearestIndex - 1]
+            : null;
+        // console.log(participants, nearestIndex);
+        // console.log({ driver, bestLap, bestLapNumber, bestLapHistory });
+        return { driver, bestLap, bestLapNumber, bestLapHistory };
+      }
+    }
+    return null;
+  }, [
+    currentLapData,
+    participants,
+    playerCurrentTyres,
+    prevLapsDriverData,
+    sessionHistory,
+    tyreSets,
+  ]);
+
   const currentLapTimeInMS =
     selfLapData == null ? 0 : selfLapData.m_currentLapTimeInMS;
 
@@ -433,6 +507,15 @@ function Main() {
           overallBestLap.bestLapHistory.m_sector3TimeInMS,
         ];
 
+  const nearestTyreLapSectorTimes =
+    nearestTyreLap == null || nearestTyreLap.bestLapHistory == null
+      ? [0, 0, 0]
+      : [
+          nearestTyreLap.bestLapHistory.m_sector1TimeInMS,
+          nearestTyreLap.bestLapHistory.m_sector2TimeInMS,
+          nearestTyreLap.bestLapHistory.m_sector3TimeInMS,
+        ];
+
   const diffToLastLapSector = diffSectors(
     thisLapSectorTimes,
     lastLapSectorTimes,
@@ -440,6 +523,11 @@ function Main() {
 
   const { diff: diffToOverallPersonalLap } = timesFromLapData(
     overallBestLap?.bestLap || null,
+    selfLapData,
+  );
+
+  const { diff: diffToNearestTyreLap } = timesFromLapData(
+    nearestTyreLap?.bestLap || null,
     selfLapData,
   );
 
@@ -455,7 +543,13 @@ function Main() {
     overallBestLapSectorTimes,
   );
 
-  const shouldHide = differenceInSeconds(currentTime, lastUpdated) > 15;
+  const diffToNearestTyreLapSectorTimes = diffSectors(
+    thisLapSectorTimes,
+    nearestTyreLapSectorTimes,
+  );
+
+  const shouldHide =
+    false && differenceInSeconds(currentTime, lastUpdated) > 15;
 
   return (
     <div
@@ -466,23 +560,32 @@ function Main() {
       }`}
     >
       <DiffToLap
-        title="Diff to Last Lap:"
+        title="Δ Last Lap:"
         diff={diffToLastLap}
         lapTime={lastLapTimeInMs}
         sectorDiff={diffToLastLapSector}
       />
       <DiffToLap
-        title="Diff to Personal Best Lap:"
+        title="Δ Personal Best Lap:"
         diff={diffToBestPersonalLap}
         lapTime={personalBestLap?.bestLapHistory?.m_lapTimeInMS || undefined}
         sectorDiff={diffToBestPersonalLapSector}
       />
       <DiffToLap
-        title="Diff to Overall Best Lap:"
+        title="Δ Overall Best Lap:"
         diff={diffToOverallPersonalLap}
         lapTime={overallBestLap?.bestLapHistory?.m_lapTimeInMS}
         sectorDiff={diffToOverallBestLapSector}
       />
+      {/* <DiffToLap
+        title={`Diff to close tyre (${nearestTyreLap?.driver?.m_name.substring(
+          0,
+          3,
+        )}):`}
+        diff={diffToNearestTyreLap}
+        lapTime={nearestTyreLap?.bestLapHistory?.m_lapTimeInMS}
+        sectorDiff={diffToNearestTyreLapSectorTimes}
+      /> */}
       <div className="flex flex-row justify-between">
         <div className="flex-grow">
           <span className="text-gray-400">Current Lap: </span>
