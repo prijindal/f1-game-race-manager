@@ -46,7 +46,7 @@ export const getClassNameFromMs = (ms: number) => {
 };
 
 export type PrevLapData = {
-  distanceToLapTime: Record<number, number>;
+  distanceToLapTime: { [k: string]: number };
   selfLapData: LapData;
 };
 

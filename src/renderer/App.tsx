@@ -46,16 +46,19 @@ const diffSectors = (
   ];
 };
 
-type PrevLapsData = Record<number, PrevLapData>;
+type PrevLapsData = { [k: string]: PrevLapData };
 
 function Main() {
-  const [prevLapsData, setPrevLapsData] = useState<PrevLapsData>({});
+  // {driver_index: PrevLapsData}
+  const [prevLapsDriverData, setPrevLapsDriverData] = useState<{
+    [k: string]: PrevLapsData;
+  }>({});
 
   const [currentLapData, setCurrentLapData] = useState<PacketLapData | null>();
 
-  const [sessionHistory, setSessionHistory] = useState<
-    Record<number, PacketSessionHistoryData>
-  >({});
+  const [sessionHistory, setSessionHistory] = useState<{
+    [k: string]: PacketSessionHistoryData;
+  }>({});
 
   // const [participants, setParticipants] =
   //   useState<PacketParticipantsData | null>();
@@ -63,7 +66,7 @@ function Main() {
   const [session, setSession] = useState<PacketSessionData | null>();
   const [carStatus, setCarStatus] = useState<PacketCarStatusData | null>();
 
-  const [tyreSets, setTyreSets] = useState<Record<number, PacketTyreSetsData>>(
+  const [tyreSets, setTyreSets] = useState<{ [k: string]: PacketTyreSetsData }>(
     {},
   );
 
@@ -91,7 +94,7 @@ function Main() {
           currentLapData.m_header.session_uid !== data.m_header.session_uid
         ) {
           setCurrentLapData(null);
-          setPrevLapsData({});
+          setPrevLapsDriverData({});
           // setParticipants(null);
           setSessionHistory({});
           setSession(null);
@@ -102,24 +105,28 @@ function Main() {
         setCurrentLapData(data);
         // console.log(currentLapData);
         if (data != null) {
-          const localSelfLapData =
-            data.m_lapData[data.m_header.player_car_index];
-          if (prevLapsData[localSelfLapData.m_currentLapNum] == null) {
-            prevLapsData[localSelfLapData.m_currentLapNum] = {
-              distanceToLapTime: {},
-              selfLapData: localSelfLapData,
-            };
-          }
-          if (localSelfLapData != null) {
-            prevLapsData[localSelfLapData.m_currentLapNum].selfLapData =
-              localSelfLapData;
-            if (localSelfLapData.m_currentLapTimeInMS > 0) {
-              prevLapsData[localSelfLapData.m_currentLapNum].distanceToLapTime[
-                localSelfLapData.m_lapDistance
-              ] = localSelfLapData.m_currentLapTimeInMS;
+          for (let i = 0; i < data.m_lapData.length; i += 1) {
+            const localSelfLapData = data.m_lapData[i];
+            const prevLapsData = prevLapsDriverData[i.toString()] || {};
+            if (prevLapsData[localSelfLapData.m_currentLapNum] == null) {
+              prevLapsData[localSelfLapData.m_currentLapNum] = {
+                distanceToLapTime: {},
+                selfLapData: localSelfLapData,
+              };
             }
+            if (localSelfLapData != null) {
+              prevLapsData[localSelfLapData.m_currentLapNum].selfLapData =
+                localSelfLapData;
+              if (localSelfLapData.m_currentLapTimeInMS > 0) {
+                prevLapsData[
+                  localSelfLapData.m_currentLapNum
+                ].distanceToLapTime[localSelfLapData.m_lapDistance] =
+                  localSelfLapData.m_currentLapTimeInMS;
+              }
+            }
+            prevLapsDriverData[i.toString()] = prevLapsData;
           }
-          setPrevLapsData(prevLapsData);
+          setPrevLapsDriverData(prevLapsDriverData);
           // console.log(`State set for ${localSelfLapData.m_lapDistance}`);
         }
       },
@@ -130,6 +137,13 @@ function Main() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const prevLapsData: PrevLapsData = useMemo(() => {
+    if (currentLapData != null) {
+      return prevLapsDriverData[currentLapData.m_header.player_car_index];
+    }
+    return {};
+  }, [prevLapsDriverData, currentLapData]);
 
   useEffect(() => {
     const listener = window.electron.ipcRenderer.on('sessionHistory', (arg) => {
@@ -228,42 +242,48 @@ function Main() {
     return { bestLap, bestLapNumber, bestLapHistory };
   }, [personalSessionHistory, prevLapsData]);
 
-  // const overallBestLap = useMemo(() => {
-  //   if (sessionHistory != null && currentLapData != null) {
-  //     let fastestLapInMs = Number.MAX_SAFE_INTEGER;
-  //     let fastestLapPlayerKey = 0;
-  //     // eslint-disable-next-line no-restricted-syntax, guard-for-in
-  //     for (const key in sessionHistory) {
-  //       const sessionHist = sessionHistory[key];
-  //       if (sessionHist != null) {
-  //         const bestLapNumber = sessionHist.m_bestLapTimeLapNum;
-  //         const bestLapHistory =
-  //           sessionHist.m_lapHistoryData.length < bestLapNumber
-  //             ? null
-  //             : sessionHist.m_lapHistoryData[bestLapNumber - 1];
-  //         if (
-  //           bestLapHistory != null &&
-  //           bestLapHistory.m_lapTimeInMS < fastestLapInMs
-  //         ) {
-  //           fastestLapInMs = bestLapHistory.m_lapTimeInMS;
-  //           fastestLapPlayerKey = parseInt(key, 10);
-  //         }
-  //       }
-  //     }
+  const overallBestLap = useMemo(() => {
+    if (sessionHistory != null && currentLapData != null) {
+      let fastestLapInMs = Number.MAX_SAFE_INTEGER;
+      let fastestLapPlayerKey = 0;
+      // eslint-disable-next-line no-restricted-syntax, guard-for-in
+      for (const key in sessionHistory) {
+        const sessionHist = sessionHistory[key];
+        if (sessionHist != null) {
+          const bestLapNumber = sessionHist.m_bestLapTimeLapNum;
+          const bestLapHistory =
+            sessionHist.m_lapHistoryData.length < bestLapNumber
+              ? null
+              : sessionHist.m_lapHistoryData[bestLapNumber - 1];
+          if (
+            bestLapHistory != null &&
+            bestLapHistory.m_lapTimeInMS < fastestLapInMs
+          ) {
+            fastestLapInMs = bestLapHistory.m_lapTimeInMS;
+            fastestLapPlayerKey = parseInt(key, 10);
+          }
+        }
+      }
 
-  //     const sessionHist = sessionHistory[fastestLapPlayerKey];
-  //     if (sessionHist == null) {
-  //       return null;
-  //     }
-  //     const bestLapNumber = sessionHist.m_bestLapTimeLapNum;
-  //     const bestLapHistory =
-  //       sessionHist.m_lapHistoryData.length < bestLapNumber
-  //         ? null
-  //         : sessionHist.m_lapHistoryData[bestLapNumber - 1];
-  //     return { bestLapNumber, bestLapHistory };
-  //   }
-  //   return null;
-  // }, [currentLapData, sessionHistory]);
+      const sessionHist = sessionHistory[fastestLapPlayerKey];
+      if (sessionHist == null) {
+        return null;
+      }
+      const bestLapNumber = sessionHist.m_bestLapTimeLapNum;
+      const bestLapHistory =
+        sessionHist.m_lapHistoryData.length < bestLapNumber
+          ? null
+          : sessionHist.m_lapHistoryData[bestLapNumber - 1];
+      let bestLap: PrevLapData | undefined;
+      const driverPrevLapData =
+        prevLapsDriverData[fastestLapPlayerKey.toString()];
+      if (driverPrevLapData) {
+        bestLap = driverPrevLapData[bestLapNumber];
+      }
+      return { bestLapNumber, bestLap, bestLapHistory };
+    }
+    return null;
+  }, [currentLapData, prevLapsDriverData, sessionHistory]);
 
   const lastLapOfDriver = useCallback(
     (driverPosition: number) => {
@@ -404,18 +424,23 @@ function Main() {
           personalBestLap.bestLapHistory.m_sector3TimeInMS,
         ];
 
-  // const overallBestLapSectorTimes =
-  //   overallBestLap == null || overallBestLap.bestLapHistory == null
-  //     ? [0, 0, 0]
-  //     : [
-  //         overallBestLap.bestLapHistory.m_sector1TimeInMS,
-  //         overallBestLap.bestLapHistory.m_sector2TimeInMS,
-  //         overallBestLap.bestLapHistory.m_sector3TimeInMS,
-  //       ];
+  const overallBestLapSectorTimes =
+    overallBestLap == null || overallBestLap.bestLapHistory == null
+      ? [0, 0, 0]
+      : [
+          overallBestLap.bestLapHistory.m_sector1TimeInMS,
+          overallBestLap.bestLapHistory.m_sector2TimeInMS,
+          overallBestLap.bestLapHistory.m_sector3TimeInMS,
+        ];
 
   const diffToLastLapSector = diffSectors(
     thisLapSectorTimes,
     lastLapSectorTimes,
+  );
+
+  const { diff: diffToOverallPersonalLap } = timesFromLapData(
+    overallBestLap?.bestLap || null,
+    selfLapData,
   );
 
   // console.log(diffToLastLapSector);
@@ -425,17 +450,19 @@ function Main() {
     bestPersonalLapSectorTimes,
   );
 
-  // const diffToOverallBestLapSector = diffSectors(
-  //   thisLapSectorTimes,
-  //   overallBestLapSectorTimes,
-  // );
+  const diffToOverallBestLapSector = diffSectors(
+    thisLapSectorTimes,
+    overallBestLapSectorTimes,
+  );
 
   const shouldHide = differenceInSeconds(currentTime, lastUpdated) > 15;
 
   return (
     <div
       className={`w-full h-full pointer-events-none transition-color duration-500 ${
-        shouldHide ? 'bg-black/0 text-white/0' : 'bg-black/80 text-white'
+        shouldHide
+          ? 'bg-black/0 text-white/0 text-white border border-solid border-slate-800/80'
+          : 'bg-black/80'
       }`}
     >
       <DiffToLap
@@ -450,11 +477,12 @@ function Main() {
         lapTime={personalBestLap?.bestLapHistory?.m_lapTimeInMS || undefined}
         sectorDiff={diffToBestPersonalLapSector}
       />
-      {/* <DiffToLap
+      <DiffToLap
         title="Diff to Overall Best Lap:"
-        diff={undefined}
+        diff={diffToOverallPersonalLap}
+        lapTime={overallBestLap?.bestLapHistory?.m_lapTimeInMS}
         sectorDiff={diffToOverallBestLapSector}
-      /> */}
+      />
       <div className="flex flex-row justify-between">
         <div className="flex-grow">
           <span className="text-gray-400">Current Lap: </span>
