@@ -12,10 +12,49 @@ import { BrowserWindow, app, ipcMain, screen, shell } from 'electron';
 import log from 'electron-log';
 import { autoUpdater } from 'electron-updater';
 import { F123UDP } from 'f1-23-udp';
+import express from 'express';
+import { Server } from 'socket.io';
+import favicon from 'serve-favicon';
+import http from 'http';
 import { createWriteStream } from 'fs';
 import path from 'path';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
+
+const RESOURCES_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, 'assets')
+  : path.join(__dirname, '../../assets');
+
+const getAssetPath = (...paths: string[]): string => {
+  return path.join(RESOURCES_PATH, ...paths);
+};
+
+const expressApp = express();
+const server = http.createServer(expressApp);
+const io = new Server(server, {
+  cors: {
+    origin: 'http://localhost:1212',
+    methods: ['GET', 'POST'],
+  },
+});
+
+io.on('connection', (socket) => {
+  console.log('Browser connected');
+
+  socket.on('disconnect', () => {
+    console.log('user disconnected');
+  });
+});
+
+expressApp.use(favicon(getAssetPath('icon.png')));
+
+expressApp.use(express.static(path.resolve(__dirname, '../renderer/')));
+
+const EXPRESS_PORT = process.env.EXPRESS_PORT || 8080;
+
+server.listen(EXPRESS_PORT, () => {
+  console.log(`Started listening on port: ${EXPRESS_PORT}`);
+});
 
 const f123: F123UDP = new F123UDP();
 f123.start();
@@ -28,14 +67,6 @@ class AppUpdater {
   }
 }
 
-const RESOURCES_PATH = app.isPackaged
-  ? path.join(process.resourcesPath, 'assets')
-  : path.join(__dirname, '../../assets');
-
-const getAssetPath = (...paths: string[]): string => {
-  return path.join(RESOURCES_PATH, ...paths);
-};
-
 let mainWindow: BrowserWindow | null = null;
 
 const recordFile = getAssetPath('records.log');
@@ -46,62 +77,46 @@ const recordData = (data: any, type: string) => {
   recordLog.write(`${JSON.stringify(record)}\n`, 'utf-8');
 };
 
-recordData({ address: f123.address, port: f123.port }, 'start-instance');
+const forwardF123Data = (data: any, type: string) => {
+  recordData(data, type);
+  if (mainWindow != null) {
+    mainWindow.webContents.send(type, data);
+  }
+  io.emit(type, data);
+};
+
+forwardF123Data({ address: f123.address, port: f123.port }, 'start-instance');
 
 f123.on('lapData', (data) => {
-  recordData(data, 'lapData');
-  if (mainWindow != null) {
-    mainWindow.webContents.send('lapData', data);
-  }
+  forwardF123Data(data, 'lapData');
 });
 
 f123.on('participants', (data) => {
-  recordData(data, 'participants');
-  if (mainWindow != null) {
-    mainWindow.webContents.send('participants', data);
-  }
+  forwardF123Data(data, 'participants');
 });
 
 f123.on('sessionHistory', (data) => {
-  recordData(data, 'sessionHistory');
-  if (mainWindow != null) {
-    mainWindow.webContents.send('sessionHistory', data);
-  }
+  forwardF123Data(data, 'sessionHistory');
 });
 
 f123.on('event', (data) => {
-  recordData(data, 'event');
-  if (mainWindow != null) {
-    mainWindow.webContents.send('event', data);
-  }
+  forwardF123Data(data, 'event');
 });
 
 f123.on('session', (data) => {
-  recordData(data, 'session');
-  if (mainWindow != null) {
-    mainWindow.webContents.send('session', data);
-  }
+  forwardF123Data(data, 'session');
 });
 
 f123.on('carStatus', (data) => {
-  recordData(data, 'carStatus');
-  if (mainWindow != null) {
-    mainWindow.webContents.send('carStatus', data);
-  }
+  forwardF123Data(data, 'carStatus');
 });
 
 f123.on('carTelemetry', (data) => {
-  recordData(data, 'carTelemetry');
-  if (mainWindow != null) {
-    mainWindow.webContents.send('carTelemetry', data);
-  }
+  forwardF123Data(data, 'carTelemetry');
 });
 
 f123.on('tyreSets', (data) => {
-  recordData(data, 'tyreSets');
-  if (mainWindow != null) {
-    mainWindow.webContents.send('tyreSets', data);
-  }
+  forwardF123Data(data, 'tyreSets');
 });
 
 ipcMain.on('ipc-example', async (event, arg) => {
@@ -214,6 +229,10 @@ app.on('window-all-closed', () => {
   recordData({}, 'stop-instance');
 
   recordLog.close();
+
+  server.close();
+
+  f123.stop();
 });
 
 app

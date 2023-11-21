@@ -13,6 +13,7 @@ import type {
   PacketParticipantsData,
 } from 'f1-23-udp';
 import { differenceInSeconds, subDays } from 'date-fns';
+import { io } from 'socket.io-client';
 import {
   roundToNearest,
   msToText,
@@ -21,6 +22,7 @@ import {
   timesFromLapData,
 } from './helpers/util';
 import DiffToLap from './components/diff';
+import type { Channels } from '../main/preload';
 
 const weatherToText = {
   0: 'clear',
@@ -49,6 +51,24 @@ const diffSectors = (
 };
 
 type PrevLapsData = { [k: string]: PrevLapData };
+
+const getIpcRenderer = () => {
+  if (window.electron != null) {
+    return window.electron.ipcRenderer;
+  }
+  const socket = io('ws://localhost:8080');
+  return {
+    sendMessage: () => {},
+    on: (channel: Channels, func: (...args: unknown[]) => void) => {
+      const listener = socket.on(channel, func);
+      return () => {
+        listener.removeListener();
+      };
+    },
+  };
+};
+
+const ipcRenderer = getIpcRenderer();
 
 function Main() {
   // {driver_index: PrevLapsData}
@@ -86,53 +106,59 @@ function Main() {
   }, []);
 
   useEffect(() => {
-    const listener = window.electron.ipcRenderer.on(
-      'lapData',
-      (arg: unknown) => {
-        // console.log(arg);
-        const data = arg as PacketLapData;
-        if (
-          currentLapData != null &&
-          currentLapData.m_header.session_uid !== data.m_header.session_uid
-        ) {
-          setCurrentLapData(null);
-          setPrevLapsDriverData({});
-          setParticipants(null);
-          setSessionHistory({});
-          setSession(null);
-          setCarStatus(null);
-          setTyreSets({});
-        }
-        setLastUpdated(new Date());
-        setCurrentLapData(data);
-        // console.log(currentLapData);
-        if (data != null) {
-          for (let i = 0; i < data.m_lapData.length; i += 1) {
-            const localSelfLapData = data.m_lapData[i];
-            const prevLapsData = prevLapsDriverData[i.toString()] || {};
-            if (prevLapsData[localSelfLapData.m_currentLapNum] == null) {
-              prevLapsData[localSelfLapData.m_currentLapNum] = {
-                distanceToLapTime: {},
-                selfLapData: localSelfLapData,
-              };
-            }
-            if (localSelfLapData != null) {
-              prevLapsData[localSelfLapData.m_currentLapNum].selfLapData =
-                localSelfLapData;
-              if (localSelfLapData.m_currentLapTimeInMS > 0) {
-                prevLapsData[
-                  localSelfLapData.m_currentLapNum
-                ].distanceToLapTime[localSelfLapData.m_lapDistance] =
-                  localSelfLapData.m_currentLapTimeInMS;
-              }
-            }
-            prevLapsDriverData[i.toString()] = prevLapsData;
+    const listener = ipcRenderer.on('start-instance', (arg: unknown) => {
+      console.log(arg);
+    });
+
+    return () => {
+      listener();
+    };
+  }, []);
+
+  useEffect(() => {
+    const listener = ipcRenderer.on('lapData', (arg: unknown) => {
+      // console.log(arg);
+      const data = arg as PacketLapData;
+      if (
+        currentLapData != null &&
+        currentLapData.m_header.session_uid !== data.m_header.session_uid
+      ) {
+        setCurrentLapData(null);
+        setPrevLapsDriverData({});
+        setParticipants(null);
+        setSessionHistory({});
+        setSession(null);
+        setCarStatus(null);
+        setTyreSets({});
+      }
+      setLastUpdated(new Date());
+      setCurrentLapData(data);
+      // console.log(currentLapData);
+      if (data != null) {
+        for (let i = 0; i < data.m_lapData.length; i += 1) {
+          const localSelfLapData = data.m_lapData[i];
+          const prevLapsData = prevLapsDriverData[i.toString()] || {};
+          if (prevLapsData[localSelfLapData.m_currentLapNum] == null) {
+            prevLapsData[localSelfLapData.m_currentLapNum] = {
+              distanceToLapTime: {},
+              selfLapData: localSelfLapData,
+            };
           }
-          setPrevLapsDriverData(prevLapsDriverData);
-          // console.log(`State set for ${localSelfLapData.m_lapDistance}`);
+          if (localSelfLapData != null) {
+            prevLapsData[localSelfLapData.m_currentLapNum].selfLapData =
+              localSelfLapData;
+            if (localSelfLapData.m_currentLapTimeInMS > 0) {
+              prevLapsData[localSelfLapData.m_currentLapNum].distanceToLapTime[
+                localSelfLapData.m_lapDistance
+              ] = localSelfLapData.m_currentLapTimeInMS;
+            }
+          }
+          prevLapsDriverData[i.toString()] = prevLapsData;
         }
-      },
-    );
+        setPrevLapsDriverData(prevLapsDriverData);
+        // console.log(`State set for ${localSelfLapData.m_lapDistance}`);
+      }
+    });
 
     return () => {
       listener();
@@ -148,7 +174,7 @@ function Main() {
   }, [prevLapsDriverData, currentLapData]);
 
   useEffect(() => {
-    const listener = window.electron.ipcRenderer.on('sessionHistory', (arg) => {
+    const listener = ipcRenderer.on('sessionHistory', (arg) => {
       const data = arg as PacketSessionHistoryData;
       sessionHistory[data.m_carIdx] = data;
       setSessionHistory(sessionHistory);
@@ -161,7 +187,7 @@ function Main() {
   }, []);
 
   useEffect(() => {
-    const listener = window.electron.ipcRenderer.on('tyreSets', (arg) => {
+    const listener = ipcRenderer.on('tyreSets', (arg) => {
       const data = arg as PacketTyreSetsData;
       tyreSets[data.m_carIdx] = data;
       setTyreSets(tyreSets);
@@ -174,37 +200,40 @@ function Main() {
   }, []);
 
   useEffect(() => {
-    const listener = window.electron.ipcRenderer.on('participants', (data) => {
+    const listener = ipcRenderer.on('participants', (data) => {
       setParticipants(data as PacketParticipantsData);
     });
 
     return () => {
       listener();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const listener = window.electron.ipcRenderer.on('session', (data) => {
+    const listener = ipcRenderer.on('session', (data) => {
       setSession(data as PacketSessionData);
     });
 
     return () => {
       listener();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const listener = window.electron.ipcRenderer.on('carStatus', (data) => {
+    const listener = ipcRenderer.on('carStatus', (data) => {
       setCarStatus(data as PacketCarStatusData);
     });
 
     return () => {
       listener();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // useEffect(() => {
-  //   const listener = window.electron.ipcRenderer.on('event', (data) => {
+  //   const listener = ipcRenderer.on('event', (data) => {
   //     const event = data as PacketEventData;
   //     if (event != null && event.m_eventStringCode === 'FLBK') {
   //       const details = event.m_eventDetails as FlashbackData;

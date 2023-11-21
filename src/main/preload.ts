@@ -10,7 +10,8 @@ export type Channels =
   | 'event'
   | 'session'
   | 'carStatus'
-  | 'tyreSets';
+  | 'tyreSets'
+  | 'start-instance';
 
 const electronHandler = {
   ipcRenderer: {
