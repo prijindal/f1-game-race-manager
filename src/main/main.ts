@@ -8,11 +8,12 @@
  * When running `npm run build` or `npm run build:main`, this file is compiled to
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
-import path from 'path';
-import { app, BrowserWindow, shell, screen, ipcMain } from 'electron';
-import { autoUpdater } from 'electron-updater';
+import { BrowserWindow, app, ipcMain, screen, shell } from 'electron';
 import log from 'electron-log';
+import { autoUpdater } from 'electron-updater';
 import { F123UDP } from 'f1-23-udp';
+import { appendFile } from 'fs/promises';
+import path from 'path';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
 
@@ -35,45 +36,67 @@ class AppUpdater {
   }
 }
 
+const RESOURCES_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, 'assets')
+  : path.join(__dirname, '../../assets');
+
+const getAssetPath = (...paths: string[]): string => {
+  return path.join(RESOURCES_PATH, ...paths);
+};
+
 let mainWindow: BrowserWindow | null = null;
 
+const recordFile = getAssetPath('records.log');
+
+const recordData = async (data: any, type: string) => {
+  const record = { timestamp: new Date(), data, type };
+  await appendFile(recordFile, JSON.stringify(record), 'utf-8');
+};
+
 f123.on('lapData', (data) => {
+  recordData(data, 'lapData');
   if (mainWindow != null) {
     mainWindow.webContents.send('lapData', data);
   }
 });
 
 f123.on('participants', (data) => {
+  recordData(data, 'participants');
   if (mainWindow != null) {
     mainWindow.webContents.send('participants', data);
   }
 });
 
 f123.on('sessionHistory', (data) => {
+  recordData(data, 'sessionHistory');
   if (mainWindow != null) {
     mainWindow.webContents.send('sessionHistory', data);
   }
 });
 
 f123.on('event', (data) => {
+  recordData(data, 'event');
   if (mainWindow != null) {
     mainWindow.webContents.send('event', data);
   }
 });
 
 f123.on('session', (data) => {
+  recordData(data, 'session');
   if (mainWindow != null) {
     mainWindow.webContents.send('session', data);
   }
 });
 
 f123.on('carStatus', (data) => {
+  recordData(data, 'carStatus');
   if (mainWindow != null) {
     mainWindow.webContents.send('carStatus', data);
   }
 });
 
 f123.on('tyreSets', (data) => {
+  recordData(data, 'tyreSets');
   if (mainWindow != null) {
     mainWindow.webContents.send('tyreSets', data);
   }
@@ -114,14 +137,6 @@ const createWindow = async () => {
   if (isDebug) {
     await installExtensions();
   }
-
-  const RESOURCES_PATH = app.isPackaged
-    ? path.join(process.resourcesPath, 'assets')
-    : path.join(__dirname, '../../assets');
-
-  const getAssetPath = (...paths: string[]): string => {
-    return path.join(RESOURCES_PATH, ...paths);
-  };
 
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth } = primaryDisplay.workAreaSize;

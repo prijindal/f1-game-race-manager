@@ -11,8 +11,6 @@ import type {
   PacketTyreSetsData,
   LapHistoryData,
   PacketParticipantsData,
-  PacketEventData,
-  FlashbackData,
 } from 'f1-23-udp';
 import { differenceInSeconds, subDays } from 'date-fns';
 import {
@@ -577,15 +575,17 @@ function Main() {
         lapTime={overallBestLap?.bestLapHistory?.m_lapTimeInMS}
         sectorDiff={diffToOverallBestLapSector}
       />
-      {/* <DiffToLap
-        title={`Diff to close tyre (${nearestTyreLap?.driver?.m_name.substring(
-          0,
-          3,
-        )}):`}
-        diff={diffToNearestTyreLap}
-        lapTime={nearestTyreLap?.bestLapHistory?.m_lapTimeInMS}
-        sectorDiff={diffToNearestTyreLapSectorTimes}
-      /> */}
+      {false && (
+        <DiffToLap
+          title={`Diff to close tyre (${nearestTyreLap?.driver?.m_name.substring(
+            0,
+            3,
+          )}):`}
+          diff={diffToNearestTyreLap}
+          lapTime={nearestTyreLap?.bestLapHistory?.m_lapTimeInMS}
+          sectorDiff={diffToNearestTyreLapSectorTimes}
+        />
+      )}
       <div className="flex flex-row justify-between">
         <div className="flex-grow">
           <span className="text-gray-400">Current Lap: </span>
