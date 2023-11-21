@@ -20,14 +20,6 @@ import { resolveHtmlPath } from './util';
 const f123: F123UDP = new F123UDP();
 f123.start();
 
-// f123.on("carTelemetry", (data) => {
-//   console.log(data.m_carTelemetryData[0].)
-// })
-
-// f123.on("session", (data) => {
-//   console.log(data)
-// })
-
 class AppUpdater {
   constructor() {
     log.transports.file.level = 'info';
@@ -50,8 +42,10 @@ const recordFile = getAssetPath('records.log');
 
 const recordData = async (data: any, type: string) => {
   const record = { timestamp: new Date(), data, type };
-  await appendFile(recordFile, JSON.stringify(record), 'utf-8');
+  await appendFile(recordFile, `${JSON.stringify(record)}\n`, 'utf-8');
 };
+
+recordData({ address: f123.address, port: f123.port }, 'start-instance');
 
 f123.on('lapData', (data) => {
   recordData(data, 'lapData');
@@ -92,6 +86,13 @@ f123.on('carStatus', (data) => {
   recordData(data, 'carStatus');
   if (mainWindow != null) {
     mainWindow.webContents.send('carStatus', data);
+  }
+});
+
+f123.on('carTelemetry', (data) => {
+  recordData(data, 'carTelemetry');
+  if (mainWindow != null) {
+    mainWindow.webContents.send('carTelemetry', data);
   }
 });
 
