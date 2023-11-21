@@ -12,7 +12,7 @@ import { BrowserWindow, app, ipcMain, screen, shell } from 'electron';
 import log from 'electron-log';
 import { autoUpdater } from 'electron-updater';
 import { F123UDP } from 'f1-23-udp';
-import { appendFile } from 'fs/promises';
+import { createWriteStream } from 'fs';
 import path from 'path';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
@@ -39,10 +39,11 @@ const getAssetPath = (...paths: string[]): string => {
 let mainWindow: BrowserWindow | null = null;
 
 const recordFile = getAssetPath('records.log');
+const recordLog = createWriteStream(recordFile, { flags: 'a' });
 
-const recordData = async (data: any, type: string) => {
+const recordData = (data: any, type: string) => {
   const record = { timestamp: new Date(), data, type };
-  await appendFile(recordFile, `${JSON.stringify(record)}\n`, 'utf-8');
+  recordLog.write(`${JSON.stringify(record)}\n`, 'utf-8');
 };
 
 recordData({ address: f123.address, port: f123.port }, 'start-instance');
@@ -209,6 +210,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+
+  recordData({}, 'stop-instance');
+
+  recordLog.close();
 });
 
 app
