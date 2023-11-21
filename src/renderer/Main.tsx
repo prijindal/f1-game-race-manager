@@ -252,6 +252,13 @@ export default function Main() {
     return currentLapData.m_lapData[currentLapData.m_header.player_car_index];
   }, [currentLapData]);
 
+  // const currentLapsData = useMemo(() => {
+  //   if (selfLapData != null && prevLapsData[selfLapData.m_currentLapNum]) {
+  //     return prevLapsData[selfLapData.m_currentLapNum];
+  //   }
+  //   return null;
+  // }, [prevLapsData, selfLapData]);
+
   const prevLapData = useMemo(() => {
     if (selfLapData != null && prevLapsData[selfLapData.m_currentLapNum - 1]) {
       return prevLapsData[selfLapData.m_currentLapNum - 1];
@@ -332,7 +339,7 @@ export default function Main() {
   const lastLapOfDriver = useCallback(
     (driverPosition: number) => {
       if (currentLapData == null) {
-        return 0;
+        return null;
       }
       let lapDataAtPosition: LapData | null = null;
       // eslint-disable-next-line no-restricted-syntax
@@ -342,23 +349,23 @@ export default function Main() {
         }
       }
       if (lapDataAtPosition == null) {
-        return 0;
+        return null;
       }
-      return lapDataAtPosition.m_lastLapTimeInMS;
+      return lapDataAtPosition;
     },
     [currentLapData],
   );
 
   const lastLapOfDriverInFront = useMemo(() => {
     if (selfLapData == null) {
-      return 0;
+      return null;
     }
     return lastLapOfDriver(selfLapData.m_carPosition - 1);
   }, [lastLapOfDriver, selfLapData]);
 
   const lastLapOfDriverBehind = useMemo(() => {
     if (selfLapData == null) {
-      return 0;
+      return null;
     }
     return lastLapOfDriver(selfLapData.m_carPosition + 1);
   }, [lastLapOfDriver, selfLapData]);
@@ -469,13 +476,13 @@ export default function Main() {
     selfLapData == null ? 0 : selfLapData.m_lastLapTimeInMS;
 
   const diffToFront =
-    lastLapTimeInMs === 0 || lastLapOfDriverInFront === 0
+    lastLapTimeInMs === 0 || lastLapOfDriverInFront == null
       ? 0
-      : lastLapTimeInMs - lastLapOfDriverInFront;
+      : lastLapTimeInMs - lastLapOfDriverInFront.m_lastLapTimeInMS;
   const diffToBehind =
-    lastLapTimeInMs === 0 || lastLapOfDriverBehind === 0
+    lastLapTimeInMs === 0 || lastLapOfDriverBehind == null
       ? 0
-      : lastLapTimeInMs - lastLapOfDriverBehind;
+      : lastLapTimeInMs - lastLapOfDriverBehind.m_lastLapTimeInMS;
 
   const { diff: diffToLastLap } = useMemo(
     () => timesFromLapData(prevLapData, selfLapData),
@@ -638,7 +645,8 @@ export default function Main() {
         >
           <span className="mr-1 text-gray-400">Front lap: </span>
           <div>
-            {msToText(lastLapOfDriverInFront ?? 0)} ({msToText(diffToFront)})
+            {msToText(lastLapOfDriverInFront?.m_lastLapTimeInMS ?? 0)} (
+            {msToText(diffToFront)})
           </div>
         </div>
         <div
@@ -648,7 +656,8 @@ export default function Main() {
         >
           <span className="mr-1 text-gray-400">Behind lap: </span>
           <div>
-            {msToText(lastLapOfDriverBehind ?? 0)} ({msToText(diffToBehind)})
+            {msToText(lastLapOfDriverBehind?.m_lastLapTimeInMS ?? 0)} (
+            {msToText(diffToBehind)})
           </div>
         </div>
       </div>

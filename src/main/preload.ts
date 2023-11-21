@@ -11,6 +11,7 @@ export type Channels =
   | 'session'
   | 'carStatus'
   | 'tyreSets'
+  | 'carTelemetry'
   | 'start-instance';
 
 const electronHandler = {

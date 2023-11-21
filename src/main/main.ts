@@ -109,15 +109,21 @@ const recordLog = createWriteStream(recordFile, { flags: 'a' });
 
 const recordData = (data: any, type: string) => {
   const record = { timestamp: new Date(), data, type };
-  recordLog.write(`${JSON.stringify(record)}\n`, 'utf-8');
+  const recordStringify = JSON.stringify(record, (key: any, value: any) => {
+    if (typeof value === 'bigint') {
+      return `bigint:${value.toString()}`;
+    }
+    return value;
+  });
+  recordLog.write(`${recordStringify}\n`, 'utf-8');
 };
 
-const forwardF123Data = (data: any, type: string) => {
-  recordData(data, type);
+const forwardF123Data = (unParsedData: any, type: string) => {
   if (mainWindow != null) {
-    mainWindow.webContents.send(type, data);
+    mainWindow.webContents.send(type, unParsedData);
   }
-  io?.emit(type, data);
+  io?.emit(type, unParsedData);
+  recordData(unParsedData, type);
 };
 
 forwardF123Data({ address: f123.address, port: f123.port }, 'start-instance');
@@ -176,9 +182,9 @@ if (process.env.NODE_ENV === 'production') {
 const isDebug =
   process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true';
 
-// if (isDebug) {
-//   require('electron-debug')();
-// }
+if (isDebug) {
+  require('electron-debug')();
+}
 
 const installExtensions = async () => {
   const installer = require('electron-devtools-installer');
