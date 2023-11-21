@@ -8,7 +8,15 @@
  * When running `npm run build` or `npm run build:main`, this file is compiled to
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
-import { BrowserWindow, app, ipcMain, screen, shell } from 'electron';
+import {
+  BrowserWindow,
+  Menu,
+  Tray,
+  app,
+  ipcMain,
+  screen,
+  shell,
+} from 'electron';
 import log from 'electron-log';
 import { autoUpdater } from 'electron-updater';
 import { F123UDP } from 'f1-23-udp';
@@ -29,32 +37,58 @@ const getAssetPath = (...paths: string[]): string => {
   return path.join(RESOURCES_PATH, ...paths);
 };
 
-const expressApp = express();
-const server = http.createServer(expressApp);
-const io = new Server(server, {
-  cors: {
-    origin: 'http://localhost:1212',
-    methods: ['GET', 'POST'],
-  },
-});
+let io: Server | undefined;
+let server: http.Server | undefined;
+let tray: Tray | undefined;
 
-io.on('connection', (socket) => {
-  console.log('Browser connected');
+const startExpressServer = () => {
+  return new Promise<void>((resolve) => {
+    const expressApp = express();
+    server = http.createServer(expressApp);
+    io = new Server(server, {
+      cors: {
+        origin: 'http://localhost:1212',
+        methods: ['GET', 'POST'],
+      },
+    });
 
-  socket.on('disconnect', () => {
-    console.log('user disconnected');
+    io.on('connection', (socket) => {
+      console.log('Browser connected');
+
+      socket.on('disconnect', () => {
+        console.log('user disconnected');
+      });
+    });
+
+    expressApp.use(favicon(getAssetPath('icon.png')));
+
+    expressApp.use(express.static(path.resolve(__dirname, '../renderer/')));
+
+    const EXPRESS_PORT = Number(process.env.EXPRESS_PORT || 8080);
+    const EXPRESS_HOST = process.env.EXPRESS_HOST || '0.0.0.0';
+
+    server.listen(EXPRESS_PORT, EXPRESS_HOST, () => {
+      console.log(`Started listening on port: ${EXPRESS_PORT}`);
+      resolve();
+    });
+
+    server.on('close', () => {
+      console.log('Server stop listening');
+    });
   });
-});
+};
 
-expressApp.use(favicon(getAssetPath('icon.png')));
-
-expressApp.use(express.static(path.resolve(__dirname, '../renderer/')));
-
-const EXPRESS_PORT = process.env.EXPRESS_PORT || 8080;
-
-server.listen(EXPRESS_PORT, () => {
-  console.log(`Started listening on port: ${EXPRESS_PORT}`);
-});
+const stopExpressServer = () => {
+  return new Promise<void>((resolve) => {
+    if (server != null) {
+      server.close(() => {
+        resolve();
+      });
+    } else {
+      resolve();
+    }
+  });
+};
 
 const f123: F123UDP = new F123UDP();
 f123.start();
@@ -82,7 +116,7 @@ const forwardF123Data = (data: any, type: string) => {
   if (mainWindow != null) {
     mainWindow.webContents.send(type, data);
   }
-  io.emit(type, data);
+  io?.emit(type, data);
 };
 
 forwardF123Data({ address: f123.address, port: f123.port }, 'start-instance');
@@ -150,6 +184,53 @@ const installExtensions = async () => {
     .catch(console.log);
 };
 
+const resetSysTray = () => {
+  if (tray == null) {
+    tray = new Tray(getAssetPath('icon.png'));
+  }
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label:
+        mainWindow == null || !mainWindow.isVisible()
+          ? 'Show Window'
+          : 'Hide Window',
+      type: 'normal',
+      role: 'minimize',
+      click: () => {
+        if (mainWindow != null) {
+          if (mainWindow.isVisible()) {
+            mainWindow.hide();
+          } else {
+            mainWindow.show();
+          }
+          resetSysTray();
+        }
+      },
+    },
+    {
+      label:
+        server == null || !server.listening ? 'Start Server' : 'Stop Server',
+      click: async () => {
+        if (server == null || !server.listening) {
+          await startExpressServer();
+        } else {
+          await stopExpressServer();
+        }
+        resetSysTray();
+      },
+    },
+    {
+      label: 'Close',
+      role: 'close',
+      click: () => {
+        mainWindow?.close();
+      },
+    },
+  ]);
+  tray.setToolTip('');
+  tray.setContextMenu(contextMenu);
+};
+
 const createWindow = async () => {
   if (isDebug) {
     await installExtensions();
@@ -186,6 +267,7 @@ const createWindow = async () => {
       throw new Error('"mainWindow" is not defined');
     }
     mainWindow.show();
+    resetSysTray();
     // if (true) {
     //   console.log('Minimizing');
     //   setTimeout(() => {
@@ -230,15 +312,18 @@ app.on('window-all-closed', () => {
 
   recordLog.close();
 
-  server.close();
+  stopExpressServer();
 
   f123.stop();
+
+  process.exit(0);
 });
 
 app
   .whenReady()
   .then(() => {
     createWindow();
+    resetSysTray();
     app.on('activate', () => {
       // On macOS it's common to re-create a window in the app when the
       // dock icon is clicked and there are no other windows open.
