@@ -236,7 +236,8 @@
     "publish": {
       "provider": "github",
       "owner": "prijindal",
-      "repo": "f1-game-race-manager"
+      "repo": "f1-game-race-manager",
+      "releaseType": "prerelease"
     }
   },
   "devEngines": {
