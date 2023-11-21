@@ -19,13 +19,14 @@ import {
 } from 'electron';
 import log from 'electron-log';
 import { autoUpdater } from 'electron-updater';
-import { F123UDP } from 'f1-23-udp';
 import express from 'express';
-import { Server } from 'socket.io';
-import favicon from 'serve-favicon';
-import http from 'http';
+import { F123UDP } from 'f1-23-udp';
 import { createWriteStream } from 'fs';
+import http from 'http';
+import type { AddressInfo } from 'net';
 import path from 'path';
+import favicon from 'serve-favicon';
+import { Server } from 'socket.io';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
 
@@ -121,6 +122,14 @@ const forwardF123Data = (data: any, type: string) => {
 
 forwardF123Data({ address: f123.address, port: f123.port }, 'start-instance');
 
+// f123.socket.on('connect', (connection: any) => {
+//   console.log(connection);
+// });
+
+// f123.socket.on('close', (close: any) => {
+//   console.log(close);
+// });
+
 f123.on('lapData', (data) => {
   forwardF123Data(data, 'lapData');
 });
@@ -184,10 +193,20 @@ const installExtensions = async () => {
     .catch(console.log);
 };
 
-const resetSysTray = () => {
+const resetSysTray = async () => {
   if (tray == null) {
     tray = new Tray(getAssetPath('icon.png'));
   }
+  const toggleWindow = () => {
+    if (mainWindow != null) {
+      if (mainWindow.isVisible()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.show();
+      }
+      resetSysTray();
+    }
+  };
   const contextMenu = Menu.buildFromTemplate([
     {
       label:
@@ -196,16 +215,7 @@ const resetSysTray = () => {
           : 'Hide Window',
       type: 'normal',
       role: 'minimize',
-      click: () => {
-        if (mainWindow != null) {
-          if (mainWindow.isVisible()) {
-            mainWindow.hide();
-          } else {
-            mainWindow.show();
-          }
-          resetSysTray();
-        }
-      },
+      click: toggleWindow,
     },
     {
       label:
@@ -227,7 +237,15 @@ const resetSysTray = () => {
       },
     },
   ]);
-  tray.setToolTip('');
+  let tooltip = '';
+  if (server == null || !server.listening) {
+    tooltip = 'Server is not started';
+  } else {
+    const addressInfo = server.address() as AddressInfo;
+    tooltip = `Server listening at ${addressInfo.address}:${addressInfo.port}`;
+  }
+  // tray.on('click', toggleWindow);
+  tray.setToolTip(tooltip);
   tray.setContextMenu(contextMenu);
 };
 
