@@ -118,12 +118,16 @@ const recordData = (data: any, type: string) => {
   recordLog.write(`${recordStringify}\n`, 'utf-8');
 };
 
+const RECORD_LOGS = Boolean(process.env.RECORD_LOGS || 'false');
+
 const forwardF123Data = (unParsedData: any, type: string) => {
   if (mainWindow != null) {
     mainWindow.webContents.send(type, unParsedData);
   }
   io?.emit(type, unParsedData);
-  recordData(unParsedData, type);
+  if (RECORD_LOGS) {
+    recordData(unParsedData, type);
+  }
 };
 
 forwardF123Data({ address: f123.address, port: f123.port }, 'start-instance');
